@@ -6,6 +6,11 @@ Run automated checks first:
 npm test
 npm run build
 npm audit
+cargo fmt --manifest-path backend/Cargo.toml --check
+cargo clippy --manifest-path backend/Cargo.toml --all-targets --all-features -- -D warnings
+docker compose up -d db
+DATABASE_URL=postgres://playground:playground@127.0.0.1:5432/playground \
+  cargo test --manifest-path backend/Cargo.toml
 ```
 
 Start the application with `npm run dev`, then run the manual cases below. Test at 320 px phone, 768 px tablet, and desktop widths unless a case specifies otherwise.
@@ -74,3 +79,39 @@ Start the application with `npm run dev`, then run the manual cases below. Test 
 - Keyboard selection did not work with `Enter` or `Space`; covered by `KEYBOARD-001` through `KEYBOARD-004`.
 - Outlying settlements appeared as selectable neighborhoods; covered by `DATA-005`.
 - Hover showed a tooltip but did not visibly highlight the neighborhood boundary; covered by `POINTER-003` through `POINTER-006`.
+
+## Backend API and Import
+
+Run all cases below with:
+
+```bash
+cargo test --manifest-path backend/Cargo.toml
+```
+
+Tests that exercise SQL or PostGIS require `DATABASE_URL`. Each integration test
+creates and drops its own temporary database. See `LOCAL_SETUP.md` for setup.
+Targeted commands referenced below are:
+
+```bash
+export DATABASE_URL=postgres://playground:playground@127.0.0.1:5432/playground
+cargo test --manifest-path backend/Cargo.toml importer::tests
+cargo test --manifest-path backend/Cargo.toml graphql::tests
+cargo test --manifest-path backend/Cargo.toml --test postgis
+cargo test --manifest-path backend/Cargo.toml --test importer_postgis
+```
+
+| ID | Priority | Test | Expected result | Automated coverage |
+| --- | --- | --- | --- | --- |
+| IMPORT-001 | High | Normalize valid playground nodes, areas, inline equipment, and contained equipment. | Stable OSM IDs, longitude-latitude points, known capability values, and valid optional fields are stored. | `cargo test --manifest-path backend/Cargo.toml importer::tests` |
+| IMPORT-002 | High | Normalize missing or invalid optional OSM tags. | Unknown names, ages, images, and capabilities remain `null` or empty; no values are inferred. | `cargo test --manifest-path backend/Cargo.toml importer::tests` |
+| IMPORT-003 | High | Import the same complete snapshot twice. | Second import succeeds without duplicate playgrounds or memberships. | `cargo test --manifest-path backend/Cargo.toml --test importer_postgis` |
+| IMPORT-004 | High | Fail retrieval, malformed JSON, validation, an Overpass error/remark response, or database replacement. | Command exits unsuccessfully and prior catalog remains usable. | Importer module and `importer_postgis` test commands |
+| IMPORT-005 | High | Associate points inside, outside, on boundaries, and inside overlapping neighborhood polygons. | Every covering polygon is stored; outside playground has empty neighborhood list. | Importer module and `importer_postgis` test commands |
+| GRAPHQL-001 | High | Inspect GraphQL schema. | `playgrounds` and `playground` queries exist; no playground mutation exists. | `cargo test --manifest-path backend/Cargo.toml graphql::tests` |
+| GRAPHQL-002 | High | Search by bounds, radius, neighborhood, age, and multiple required capabilities. | Each filter works; combined filters use AND; radius results include meters. | `cargo test --manifest-path backend/Cargo.toml --test postgis` |
+| GRAPHQL-003 | High | Search with unknown age/capability metadata. | Unknown metadata never matches requested attribute filters. | `cargo test --manifest-path backend/Cargo.toml --test postgis` |
+| GRAPHQL-004 | High | Submit invalid coordinates, inverted bounds, incomplete center/radius, non-positive radius, age outside `0..=18`, or limit outside `1..=500`. | GraphQL returns a safe input error before database access. | `cargo test --manifest-path backend/Cargo.toml graphql::tests` |
+| GRAPHQL-005 | High | Omit limit, use maximum limit, then exceed maximum. | Default is 200; maximum 500 succeeds; larger values fail; ordering is deterministic. | GraphQL module and `postgis` test commands |
+| GRAPHQL-006 | High | Fetch existing, incomplete, and unknown playground IDs. | Existing details include all recorded fields; missing optional data is `null` or empty; unknown ID returns `null`. | GraphQL module and `postgis` test commands |
+| CORS-001 | High | Send allowed-origin preflight and blocked-origin requests. | Configured Vite origin receives CORS headers; other origins do not. | `cargo test --manifest-path backend/Cargo.toml graphql::tests` |
+| SOURCE-001 | High | Query imported playground source fields. | Stable OSM ID, source URL, `© OpenStreetMap contributors`, and `ODbL-1.0` are returned. | GraphQL module and `postgis` test commands |

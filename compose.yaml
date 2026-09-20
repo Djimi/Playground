@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: playground
+      POSTGRES_USER: playground
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-playground}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - playground-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U playground -d playground"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgres://playground:${POSTGRES_PASSWORD:-playground}@db:5432/playground
+      API_ADDR: 0.0.0.0:3000
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://127.0.0.1:5173}
+      OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
+      NEIGHBORHOODS_PATH: /app/public/data/sofia-neighborhoods.geojson
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  playground-postgres:
+

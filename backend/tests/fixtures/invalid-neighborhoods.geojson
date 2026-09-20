@@ -1,0 +1,10 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "id": "broken", "name": "Broken" },
+      "geometry": { "type": "Polygon", "coordinates": "not coordinates" }
+    }
+  ]
+}

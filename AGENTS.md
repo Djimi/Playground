@@ -20,6 +20,11 @@ Before producing design.md, do not assume the major technology stack.
 Ask the user about unresolved architectural choices such as frontend,
 backend, persistence and deployment technology.
 
+Discuss every new technology, architectural concept/pattern, communication
+protocol, or architectural change with the user first (for example CQRS,
+transactional outbox, or optimistic/pessimistic locking). Routine implementation
+libraries, such as a PostgreSQL driver, do not require discussion.
+
 ## Project docs
 - Local setup: [LOCAL_SETUP.md](LOCAL_SETUP.md)
 - Technology gotchas: [docs/gotchas](docs/gotchas/)
