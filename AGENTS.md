@@ -14,7 +14,20 @@ children's slide, or with both.
 
 Initially that will be webapp which should work find on phones/tables.
 
+## Project info
+This is a greenfield project.
+Before producing design.md, do not assume the major technology stack.
+Ask the user about unresolved architectural choices such as frontend,
+backend, persistence and deployment technology.
 
+## Project docs
+- Local setup: [LOCAL_SETUP.md](LOCAL_SETUP.md)
+- Technology gotchas: [docs/gotchas](docs/gotchas/)
+- Test cases: [TEST_CASES.md](TEST_CASES.md)
+
+When a technology causes a bug or subtle behavior, add a short note to its
+gotcha file with symptom, cause, fix, and verification. Update existing notes
+before creating new files.
 
 
 ## Mindset
