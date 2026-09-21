@@ -31,7 +31,8 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | DATA-001 | High | Load `public/data/sofia-neighborhoods.geojson`. | Valid `FeatureCollection`; scope is Sofia relation `4283101`; license is `ODbL-1.0`. | Automated test |
 | DATA-002 | High | Validate every feature. | Each feature has a unique stable ID, unique name, and `Polygon` or `MultiPolygon` geometry. | Automated test |
 | DATA-003 | High | Check all displayed names. | Names contain no Cyrillic characters. | Automated test |
-| DATA-004 | High | Check required neighborhoods. | Lozenets and Mladost 1, 1A, 2, 3, and 4 are present. | Automated test and UI review |
+| DATA-004 | High | Check curated neighborhood coverage. | Lozenets; Mladost 1, 1A, 2, 3, and 4; Raina Knyaginya; Lyulin 1–10 and Center; and Nadezhda 1–4 are separate Latin-script features. | Automated test and UI review |
+| DATA-007 | High | Inspect Raina Knyaginya and Hadzhi Dimitar. | Raina Knyaginya carries its curated OSM-node attribution; Hadzhi Dimitar has one polygon; the aggregate Lyulin relation is absent. | Automated test |
 | DATA-005 | High | Check excluded outlying settlements. | Benkovski, Chelopechene, Kremikovtsi, Seslavtsi, and Trebich are absent. | Reported regression and automated test |
 | DATA-006 | High | Load `public/data/sofia-discovery-areas.geojson`. | Exact South Park relation `16878152` and Sofia Zoo way `157686292` polygons are present with ODbL metadata. | Automated test |
 | BUILD-001 | High | Run `npm run build`. | Vite production build exits successfully. | Automated build |
@@ -52,13 +53,13 @@ Start the application with `npm run start:local`, then run the manual cases belo
 
 | ID | Priority | Test steps | Expected result | Coverage source |
 | --- | --- | --- | --- | --- |
-| POINTER-001 | High | Click Lozenets. | Lozenets receives selected styling and its English name appears in the header. | Main session and subagent review |
-| POINTER-002 | High | Select Lozenets, then select Mladost 3. | Lozenets returns to default styling; only Mladost 3 remains selected. | Main session and subagent review |
+| POINTER-001 | High | Click or tap Lozenets. | Map fits Lozenets; no area remains selected after the pointer leaves. | Main session review |
+| POINTER-002 | High | Click Lozenets, then Mladost 3. | Each click fits its own bounds; neither area remains selected. | Main session review |
 | POINTER-003 | High | Hover an unselected neighborhood, South Park, or Sofia Zoo. | Hovered polygon receives a clearly visible highlight and its name appears in the large header. | User request |
-| POINTER-004 | High | Move pointer away from an unselected area. | Polygon returns to default styling and the header restores the selected area name or default prompt. | User request |
-| POINTER-005 | Medium | Select a polygon, then hover it and move pointer away. | Selected styling remains after hover ends. | Hover regression follow-up |
+| POINTER-004 | High | Move pointer or keyboard focus away from an area. | Polygon returns to default styling and the header restores its default prompt. | User request |
+| POINTER-005 | Medium | Click an area, then hover South Park or Sofia Zoo and move away. | The destination preview is visible and clears after preview ends. | Hover regression follow-up |
 | POINTER-006 | Medium | Move pointer directly between adjacent polygons. | Highlight follows the pointer; previous polygon does not remain highlighted. | Hover regression follow-up |
-| POINTER-007 | High | Click South Park, then Sofia Zoo. | Each real facility polygon becomes selected and the map zooms to fit it; similarly named neighborhood polygons do not intercept the click. | User request |
+| POINTER-007 | High | Click South Park, then Sofia Zoo. | Each real facility polygon fits the map without persistent styling; similarly named neighborhood polygons do not intercept the click. | User request |
 | POINTER-008 | High | Open named and unnamed playground pins. | Popup shows safe name fallback, capabilities when present, and an OpenStreetMap link. | User request |
 
 ## Playground Preview and Details
@@ -68,7 +69,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | PLAYGROUND-001 | High | Hover a playground pin with a photo, age, and equipment. | Compact preview shows the photo, name, age, equipment summary, `No ratings yet`, and preview pin styling. | Browser check and `src/main.js` |
 | PLAYGROUND-002 | High | Focus a playground pin with `Tab`, then move focus away. | The same preview and styling appear on focus, then close and reset on focus exit. | Browser check and `src/main.js` |
 | PLAYGROUND-003 | High | Preview a playground with no name, photo, age, equipment, or ratings. | The preview uses an unnamed fallback and honest empty or unknown states; no fabricated rating appears. | Browser check and `src/main.js` |
-| PLAYGROUND-004 | High | Click or tap a playground pin. | A semantic detail view opens with all photos, age, equipment counts or unknown quantities, empty platform-review state, OpenStreetMap source attribution, and selected pin styling. | Browser check and `src/main.js` |
+| PLAYGROUND-004 | High | Click or tap a playground pin. | Its neutral-blue default appearance differs from area preview and selected-pin orange; details retain all photos, age, equipment, review, source, and selected-pin cues. | Browser check and `src/main.js` |
 | PLAYGROUND-005 | High | Focus a playground pin and press `Enter`, then repeat with `Space`. | Both keys open the same detail view without scrolling the page. | Browser check and `src/main.js` |
 | PLAYGROUND-006 | High | Open one detail view, then quickly open another pin. | The stale detail request is aborted and only the latest playground details are rendered. | Source review and browser network check |
 | PLAYGROUND-007 | High | Open an incomplete playground detail. | Missing photos, age, equipment counts, ratings, and reviews are labeled as empty or unknown; no values are inferred. | Browser check and `src/main.js` |
@@ -79,9 +80,9 @@ Start the application with `npm run start:local`, then run the manual cases belo
 
 | ID | Priority | Test steps | Expected result | Coverage source |
 | --- | --- | --- | --- | --- |
-| NAV-001 | High | Record the map view, select an area, then press Back. | Area focus clears and the view returns to the saved pre-selection center and zoom. | Browser check and `src/main.js` |
-| NAV-002 | High | Select an area, open a playground detail, then press Back twice. | First Back closes details while keeping area focus and viewport; second Back clears area focus and restores the prior viewport. | Browser check and `src/main.js` |
-| NAV-003 | High | Repeat NAV-001 and NAV-002 with `Escape`. | Escape performs the same state transitions as Back. | Browser check and `src/main.js` |
+| NAV-001 | High | Open playground details, then press Back. | Details close, pin selection clears, and the viewport does not move. | Browser check and `src/main.js` |
+| NAV-002 | High | Open playground details, click an area, then click that area again. | First input closes details only; second fits the area bounds. | Browser check and `src/main.js` |
+| NAV-003 | High | Open playground details, then press Escape. | Details close, pin selection clears, and the viewport does not move. | Browser check and `src/main.js` |
 | NAV-004 | High | Press `Escape` in the default state. | Nothing changes; native Leaflet wheel, touch, keyboard, and zoom-control behavior remains available without `Ctrl`. | Browser check and Leaflet behavior |
 
 ## Keyboard and Accessibility
@@ -89,9 +90,9 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | ID | Priority | Test steps | Expected result | Coverage source |
 | --- | --- | --- | --- | --- |
 | KEYBOARD-001 | High | Press `Tab` until a neighborhood polygon receives focus. | Focus reaches polygons; each exposes a readable `Select <name>` label and button role. | Reported regression and Luna verification |
-| KEYBOARD-002 | High | Focus Lozenets and press `Enter`. | Lozenets becomes selected/highlighted and its name appears in the header. | Reported regression and Luna verification |
-| KEYBOARD-003 | High | Focus Mladost 1 and press `Space`. | Mladost 1 replaces the previous selection; page does not scroll. | Reported regression and Luna verification |
-| KEYBOARD-004 | High | Select one polygon by keyboard, then another. | Only the latest polygon keeps selected styling. | Luna verification |
+| KEYBOARD-002 | High | Focus Lozenets and press `Enter`. | Map fits Lozenets without selected styling and the page does not scroll. | Source and browser review |
+| KEYBOARD-003 | High | Focus Mladost 1 and press `Space`. | Map fits Mladost 1 without page scrolling or persistent area styling. | Source and browser review |
+| KEYBOARD-004 | High | Keyboard-activate two polygons, then blur focus. | Each activation fits its polygon; previews clear on blur. | Source and browser review |
 | KEYBOARD-005 | High | Focus a playground pin and press `Enter` or `Space`. | Its popup opens without scrolling the page. | Source and browser review |
 | ACCESS-001 | Medium | Change neighborhood selection. | Header name update is announced through the live region. | Source review |
 
@@ -102,7 +103,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | RESPONSIVE-001 | High | Set viewport to 320 × 640 px and interact with the map. | No horizontal scrolling; header, controls, selected name, and attribution remain visible and usable. | Main session and builder subagent |
 | RESPONSIVE-002 | High | Set viewport width to 768 px and interact with the map. | Map fills viewport; controls and header do not clip or overlap critical content. | Main session and builder subagent |
 | RESPONSIVE-003 | High | Test at 1280 × 800 px or larger. | Map fills viewport; header stays centered; controls and attribution remain visible. | Luna and builder subagents |
-| RESPONSIVE-004 | Medium | At each viewport, click or keyboard-select two neighborhoods. | Selection and replacement work consistently at every size. | Builder subagent |
+| RESPONSIVE-004 | Medium | At each viewport, click or keyboard-activate two neighborhoods and preview a park. | Bounds fitting and transient previews work consistently at every size. | Main session review |
 
 ## Console and Failure Checks
 

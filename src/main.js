@@ -39,9 +39,9 @@ const PLAYGROUND_DETAIL_QUERY = `
     }
   }
 `;
-const DEFAULT_STYLE = {
-  color: "#7c2d12",
-  fillColor: "#fb923c",
+const DEFAULT_PIN_STYLE = {
+  color: "#1d4ed8",
+  fillColor: "#60a5fa",
   fillOpacity: 0.95,
   radius: 12,
   weight: 2,
@@ -94,32 +94,25 @@ const detailsClose = document.querySelector("#details-close");
 const detailsTitle = document.querySelector("#playground-details-title");
 const detailsContent = document.querySelector("#playground-details-content");
 const playgrounds = L.layerGroup().addTo(map);
-let selectedLayer;
 let selectedPlayground;
 let selectedPlaygroundMarker;
-let savedViewport;
 let playgroundRequest;
 let detailRequest;
 let previewPopup;
 let previewMarker;
-let suppressHover;
 
 function showAreaName(name) {
-  areaName.textContent = name ?? selectedLayer?.feature.properties.name ?? DEFAULT_LABEL;
+  areaName.textContent = name ?? DEFAULT_LABEL;
 }
 
 function updateBackButton() {
-  backButton.hidden = !selectedLayer && !selectedPlayground;
-}
-
-function snapshotViewport() {
-  return { center: map.getCenter(), zoom: map.getZoom() };
+  backButton.hidden = !selectedPlayground;
 }
 
 function markerStyle(marker) {
   if (marker === selectedPlaygroundMarker) return SELECTED_STYLE;
   if (marker === previewMarker) return PREVIEW_STYLE;
-  return DEFAULT_STYLE;
+  return DEFAULT_PIN_STYLE;
 }
 
 function updateMarkerStyle(marker) {
@@ -151,63 +144,59 @@ function closeDetails() {
 function goBack() {
   if (selectedPlayground) {
     closeDetails();
-    return;
   }
-  if (!selectedLayer) return;
-
-  const viewport = savedViewport;
-  areas.resetStyle(selectedLayer);
-  selectedLayer = undefined;
-  savedViewport = undefined;
-  suppressHover = false;
-  showAreaName();
-  updateBackButton();
-  if (viewport) map.setView(viewport.center, viewport.zoom, { animate: false });
 }
 
-function selectArea(feature, layer) {
-  if (selectedPlayground) closeDetails();
-  if (!selectedLayer) savedViewport = snapshotViewport();
-  if (selectedLayer && selectedLayer !== layer) areas.resetStyle(selectedLayer);
-  selectedLayer = layer;
-  suppressHover = true;
-  layer.setStyle(SELECTED_STYLE);
-  showAreaName(feature.properties.name);
-  updateBackButton();
+function activateArea(layer) {
+  if (selectedPlayground) {
+    closeDetails();
+    return;
+  }
   map.fitBounds(layer.getBounds(), { maxZoom: 16, padding: [40, 40] });
 }
 
 function onEachArea(feature, layer) {
+  let focused = false;
+  let hovered = false;
+  const preview = () => {
+    layer.setStyle(HOVER_STYLE);
+    showAreaName(feature.properties.name);
+  };
+  const endPreview = () => {
+    if (hovered || focused) return;
+    areas.resetStyle(layer);
+    showAreaName();
+  };
   layer.on({
     add() {
       const element = layer.getElement();
       element?.setAttribute("tabindex", "0");
       element?.setAttribute("role", "button");
       element?.setAttribute("aria-label", `Select ${feature.properties.name}`);
+      element?.addEventListener("focus", () => {
+        focused = true;
+        preview();
+      });
+      element?.addEventListener("blur", () => {
+        focused = false;
+        endPreview();
+      });
     },
     mouseover() {
-      if (suppressHover) return;
-      if (selectedLayer !== layer) layer.setStyle(HOVER_STYLE);
-      showAreaName(feature.properties.name);
-    },
-    mousemove({ originalEvent }) {
-      if (!suppressHover || (!originalEvent.movementX && !originalEvent.movementY)) return;
-      suppressHover = false;
-      if (selectedLayer !== layer) layer.setStyle(HOVER_STYLE);
-      showAreaName(feature.properties.name);
+      hovered = true;
+      preview();
     },
     mouseout() {
-      if (suppressHover) return;
-      if (selectedLayer !== layer) areas.resetStyle(layer);
-      showAreaName();
+      hovered = false;
+      endPreview();
     },
     click() {
-      selectArea(feature, layer);
+      activateArea(layer);
     },
     keydown({ originalEvent }) {
       if (originalEvent.key !== "Enter" && originalEvent.key !== " ") return;
       originalEvent.preventDefault();
-      selectArea(feature, layer);
+      activateArea(layer);
     },
   });
 }
@@ -426,12 +415,15 @@ function renderPlaygrounds(items) {
     const label = playground.name ?? "Unnamed playground";
     const marker = L.circleMarker(
       [playground.location.latitude, playground.location.longitude],
-      { ...DEFAULT_STYLE, pane: "playgrounds" },
+      { ...DEFAULT_PIN_STYLE, pane: "playgrounds" },
     ).addTo(playgrounds);
     marker.on({
       mouseover: () => showPreview(playground, marker),
       mouseout: closePreview,
-      click: () => openDetails(playground, marker),
+      click: ({ originalEvent }) => {
+        L.DomEvent.stopPropagation(originalEvent);
+        openDetails(playground, marker);
+      },
     });
     const element = marker.getElement();
     element?.setAttribute("tabindex", "0");
@@ -494,6 +486,9 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") goBack();
 });
 map.on("moveend", loadPlaygrounds);
+map.on("click", () => {
+  if (selectedPlayground) closeDetails();
+});
 addAreaData("/data/sofia-neighborhoods.geojson", true).then(() =>
   addAreaData("/data/sofia-discovery-areas.geojson"),
 );
