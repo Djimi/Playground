@@ -63,19 +63,19 @@ async fn seed(pool: &PgPool) {
     sqlx::query(
         r#"
         INSERT INTO playgrounds
-          (id, name, location, capabilities, min_age, max_age, photo_urls, source_url, source_updated_at)
+          (id, name, location, capabilities, equipment_counts, min_age, max_age, photo_urls, source_url, source_updated_at)
         VALUES
           ('graphql-test/a', 'Alpha', ST_SetSRID(ST_MakePoint(0, 0), 4326)::geography,
-           ARRAY['swing', 'slide'], 3, 8, ARRAY['https://example.test/a.jpg'],
+           ARRAY['swing', 'slide'], '{"swing": 2, "slide": 1}'::jsonb, 3, 8, ARRAY['https://example.test/a.jpg'],
            'https://www.openstreetmap.org/node/1', '2026-01-01T00:00:00Z'),
           ('graphql-test/b', NULL, ST_SetSRID(ST_MakePoint(0.001, 0), 4326)::geography,
-           ARRAY['swing'], NULL, 5, ARRAY[]::text[],
+           ARRAY['swing'], '{}'::jsonb, NULL, 5, ARRAY[]::text[],
            'https://www.openstreetmap.org/node/2', NULL),
           ('graphql-test/c', 'Unknown metadata', ST_SetSRID(ST_MakePoint(0.003, 0), 4326)::geography,
-           ARRAY[]::text[], NULL, NULL, ARRAY[]::text[],
+           ARRAY[]::text[], '{}'::jsonb, NULL, NULL, ARRAY[]::text[],
            'https://www.openstreetmap.org/node/3', NULL),
           ('graphql-test/d', 'Open maximum', ST_SetSRID(ST_MakePoint(0.002, 0), 4326)::geography,
-           ARRAY['swing'], 10, NULL, ARRAY[]::text[],
+           ARRAY['swing'], '{"swing": 3}'::jsonb, 10, NULL, ARRAY[]::text[],
            'https://www.openstreetmap.org/node/4', NULL)
         "#,
     )
@@ -95,6 +95,25 @@ async fn seed(pool: &PgPool) {
     .execute(pool)
     .await
     .unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn equipment_counts_default_preserves_capabilities(pool: PgPool) {
+    sqlx::query(
+        "INSERT INTO playgrounds (id, location, capabilities, source_url) VALUES ('migration-test/one', ST_SetSRID(ST_MakePoint(23.3, 42.7), 4326)::geography, ARRAY['swing', 'slide'], 'https://example.test/migration')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (capabilities, counts): (Vec<String>, Value) = sqlx::query_as(
+        "SELECT capabilities, equipment_counts FROM playgrounds WHERE id = 'migration-test/one'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(capabilities, ["swing", "slide"]);
+    assert_eq!(counts, json!({}));
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -203,6 +222,28 @@ async fn graphql_queries_use_postgis_and_combine_catalog_filters(pool: PgPool) {
         json!([{ "id": "graphql-test/a" }])
     );
 
+    let equipment = graphql(
+        &app,
+        r#"{
+          playgrounds(filter: { neighborhoodId: "graphql-test/parent" }) {
+            id equipment { capability count }
+          }
+        }"#,
+    )
+    .await;
+    assert_eq!(
+        equipment["data"]["playgrounds"][0]["equipment"],
+        json!([
+            { "capability": "SLIDE", "count": 1 },
+            { "capability": "SWING", "count": 2 }
+        ])
+    );
+    assert_eq!(
+        equipment["data"]["playgrounds"][1]["equipment"],
+        json!([{ "capability": "SWING", "count": null }])
+    );
+    assert_eq!(equipment["data"]["playgrounds"][2]["equipment"], json!([]));
+
     let one_sided_and_unknown = graphql(
         &app,
         r#"{
@@ -239,7 +280,7 @@ async fn graphql_queries_use_postgis_and_combine_catalog_filters(pool: PgPool) {
         &app,
         r#"{
           found: playground(id: "graphql-test/b") {
-            id name minAge maxAge photoUrls capabilities
+            id name minAge maxAge photoUrls capabilities equipment { capability count }
             location { longitude latitude }
             source { id url updatedAt attribution license }
           }
@@ -250,6 +291,10 @@ async fn graphql_queries_use_postgis_and_combine_catalog_filters(pool: PgPool) {
     assert_eq!(detail["data"]["found"]["name"], Value::Null);
     assert_eq!(detail["data"]["found"]["minAge"], Value::Null);
     assert_eq!(detail["data"]["found"]["photoUrls"], json!([]));
+    assert_eq!(
+        detail["data"]["found"]["equipment"],
+        json!([{ "capability": "SWING", "count": null }])
+    );
     assert_eq!(detail["data"]["found"]["source"]["id"], "graphql-test/b");
     assert_eq!(detail["data"]["found"]["source"]["updatedAt"], Value::Null);
     assert_eq!(

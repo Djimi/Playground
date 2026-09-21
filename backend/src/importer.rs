@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
@@ -36,6 +40,7 @@ pub struct Playground {
     pub longitude: f64,
     pub latitude: f64,
     pub capabilities: Vec<String>,
+    pub equipment_counts: BTreeMap<String, i32>,
     pub min_age: Option<i16>,
     pub max_age: Option<i16>,
     pub photo_urls: Vec<String>,
@@ -168,6 +173,11 @@ pub fn normalize_overpass(body: &str) -> Result<Vec<Playground>> {
                 .is_some_and(|area| area.intersects(&point))
             {
                 root.playground.capabilities.push(capability.to_owned());
+                *root
+                    .playground
+                    .equipment_counts
+                    .entry(capability.to_owned())
+                    .or_default() += 1;
             }
         }
     }
@@ -272,13 +282,14 @@ pub async fn replace_snapshot(
 
     for playground in playgrounds {
         sqlx::query(
-            "INSERT INTO import_playgrounds (id, name, location, capabilities, min_age, max_age, photo_urls, source_url, source_updated_at) VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6, $7, $8, $9, $10)",
+            "INSERT INTO import_playgrounds (id, name, location, capabilities, equipment_counts, min_age, max_age, photo_urls, source_url, source_updated_at) VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(&playground.id)
         .bind(&playground.name)
         .bind(playground.longitude)
         .bind(playground.latitude)
         .bind(&playground.capabilities)
+        .bind(serde_json::to_value(&playground.equipment_counts)?)
         .bind(playground.min_age)
         .bind(playground.max_age)
         .bind(&playground.photo_urls)
@@ -382,6 +393,7 @@ fn normalize_root(element: &Element) -> Result<Root> {
             longitude: point.x(),
             latitude: point.y(),
             capabilities,
+            equipment_counts: BTreeMap::new(),
             min_age,
             max_age,
             photo_urls,
@@ -635,7 +647,8 @@ mod tests {
                  "geometry":[{"lat":42.0,"lon":23.0},{"lat":42.0,"lon":24.0},{"lat":43.0,"lon":24.0},{"lat":43.0,"lon":23.0},{"lat":42.0,"lon":23.0}],
                  "tags":{"leisure":"playground","name":" Test ","playground:swing":"yes","playground:slide":"no","min_age":"-1","max_age":"12","image":"ftp://bad; https://example.test/photo.jpg"}},
                 {"type":"node","id":21,"lat":42.25,"lon":23.25,"tags":{"playground":"slide"}},
-                {"type":"node","id":22,"lat":41.0,"lon":23.25,"tags":{"playground":"seesaw"}}
+                {"type":"node","id":22,"lat":42.5,"lon":23.75,"tags":{"playground":"slide"}},
+                {"type":"node","id":23,"lat":41.0,"lon":23.25,"tags":{"playground":"seesaw"}}
               ]
             }"#,
         )
@@ -646,6 +659,10 @@ mod tests {
         assert_eq!(playground.id, "way/20");
         assert_eq!(playground.name.as_deref(), Some("Test"));
         assert_eq!(playground.capabilities, ["slide", "swing"]);
+        assert_eq!(
+            playground.equipment_counts,
+            BTreeMap::from([(String::from("slide"), 2)])
+        );
         assert_eq!(playground.min_age, None);
         assert_eq!(playground.max_age, Some(12));
         assert_eq!(playground.photo_urls, ["https://example.test/photo.jpg"]);

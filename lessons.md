@@ -6,3 +6,5 @@
 - Verify pointer-hover boundary highlighting explicitly; tooltip visibility alone does not prove the hovered neighborhood is visually highlighted.
 - When explaining map selection, distinguish visible base-tile shapes from loaded interactive geometry; also distinguish a named quarter from the real park or facility with the same name.
 - Default subagents to Luna with max reasoning; use a higher-end model only when the task clearly needs it.
+- Interpret "things where kids can play" as physical play equipment such as swings and slides, with optional counts; do not reinterpret it as review criteria.
+- Never suggest fake production ratings. Show an unrated state, or label hardcoded values clearly as demo data during UI prototyping.

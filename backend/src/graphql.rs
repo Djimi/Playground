@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use anyhow::{Context as _, Result};
 use async_graphql::{
     Context, EmptyMutation, EmptySubscription, Enum, Error, ID, InputObject, Object,
@@ -111,11 +113,18 @@ pub struct Playground {
     pub location: Coordinate,
     pub neighborhoods: Vec<Neighborhood>,
     pub capabilities: Vec<Capability>,
+    pub equipment: Vec<Equipment>,
     pub min_age: Option<i32>,
     pub max_age: Option<i32>,
     pub photo_urls: Vec<String>,
     pub source: SourceMetadata,
     pub distance_meters: Option<f64>,
+}
+
+#[derive(SimpleObject)]
+pub struct Equipment {
+    pub capability: Capability,
+    pub count: Option<i32>,
 }
 
 #[derive(FromRow)]
@@ -127,6 +136,7 @@ struct PlaygroundRow {
     neighborhood_ids: Vec<String>,
     neighborhood_names: Vec<String>,
     capabilities: Vec<String>,
+    equipment_counts: sqlx::types::Json<BTreeMap<String, i32>>,
     min_age: Option<i16>,
     max_age: Option<i16>,
     photo_urls: Vec<String>,
@@ -146,6 +156,32 @@ impl PlaygroundRow {
             .map(|value| Capability::from_database(value))
             .collect::<Option<Vec<_>>>()
             .ok_or_else(|| Error::new("playground data is temporarily unavailable"))?;
+        let mut capabilities = capabilities;
+        capabilities.sort_unstable_by_key(|value| value.database_value());
+        capabilities.dedup();
+
+        let capability_names = capabilities
+            .iter()
+            .map(|value| value.database_value())
+            .collect::<BTreeSet<_>>();
+        if self.equipment_counts.0.iter().any(|(value, count)| {
+            *count <= 0
+                || Capability::from_database(value).is_none()
+                || !capability_names.contains(value.as_str())
+        }) {
+            return Err(Error::new("playground data is temporarily unavailable"));
+        }
+        let equipment = capabilities
+            .iter()
+            .map(|capability| Equipment {
+                capability: *capability,
+                count: self
+                    .equipment_counts
+                    .0
+                    .get(capability.database_value())
+                    .copied(),
+            })
+            .collect();
 
         Ok(Playground {
             source: SourceMetadata {
@@ -171,6 +207,7 @@ impl PlaygroundRow {
                 })
                 .collect(),
             capabilities,
+            equipment,
             min_age: self.min_age.map(i32::from),
             max_age: self.max_age.map(i32::from),
             photo_urls: self.photo_urls,
@@ -283,6 +320,7 @@ SELECT p.id,
              WHERE pn.playground_id = p.id
              ORDER BY n.id) AS neighborhood_names,
        p.capabilities,
+       p.equipment_counts,
        p.min_age,
        p.max_age,
        p.photo_urls,

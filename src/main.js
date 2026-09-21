@@ -15,16 +15,36 @@ const PLAYGROUNDS_QUERY = `
       id
       name
       location { longitude latitude }
+      minAge
+      maxAge
+      photoUrls
       capabilities
+      equipment { capability count }
       source { url }
     }
   }
 `;
+const PLAYGROUND_DETAIL_QUERY = `
+  query PlaygroundDetail($id: ID!) {
+    playground(id: $id) {
+      id
+      name
+      location { longitude latitude }
+      minAge
+      maxAge
+      photoUrls
+      capabilities
+      equipment { capability count }
+      source { id url updatedAt attribution license }
+    }
+  }
+`;
 const DEFAULT_STYLE = {
-  color: "#25766f",
-  fillColor: "#83c9bf",
-  fillOpacity: 0.22,
-  weight: 1.5,
+  color: "#7c2d12",
+  fillColor: "#fb923c",
+  fillOpacity: 0.95,
+  radius: 12,
+  weight: 2,
 };
 const HOVER_STYLE = {
   color: "#155e59",
@@ -32,18 +52,29 @@ const HOVER_STYLE = {
   fillOpacity: 0.38,
   weight: 2.5,
 };
-const SELECTED_STYLE = {
-  color: "#9d341f",
-  fillColor: "#ef8354",
-  fillOpacity: 0.5,
+const PREVIEW_STYLE = {
+  color: "#155e59",
+  fillColor: "#5db8aa",
+  fillOpacity: 1,
+  radius: 15,
   weight: 3,
 };
-const PLAYGROUND_STYLE = {
-  color: "#7c2d12",
-  fillColor: "#fb923c",
-  fillOpacity: 0.95,
-  radius: 12,
-  weight: 2,
+const SELECTED_STYLE = {
+  color: "#9d341f",
+  fillColor: "#ef5b32",
+  fillOpacity: 1,
+  radius: 16,
+  weight: 4,
+};
+const CAPABILITY_LABELS = {
+  CLIMBING_FRAME: "Climbing frame",
+  PLAYHOUSE: "Playhouse",
+  ROUNDABOUT: "Roundabout",
+  SANDPIT: "Sandpit",
+  SEESAW: "Seesaw",
+  SLIDE: "Slide",
+  SPRINGY: "Springy",
+  SWING: "Swing",
 };
 
 const map = L.map("map", { zoomControl: true }).setView(SOFIA_CENTER, 12);
@@ -57,21 +88,92 @@ L.tileLayer(TILE_URL, {
 }).addTo(map);
 
 const areaName = document.querySelector("#area-name");
+const backButton = document.querySelector("#back-button");
+const details = document.querySelector("#playground-details");
+const detailsClose = document.querySelector("#details-close");
+const detailsTitle = document.querySelector("#playground-details-title");
+const detailsContent = document.querySelector("#playground-details-content");
 const playgrounds = L.layerGroup().addTo(map);
 let selectedLayer;
+let selectedPlayground;
+let selectedPlaygroundMarker;
+let savedViewport;
 let playgroundRequest;
+let detailRequest;
+let previewPopup;
+let previewMarker;
 let suppressHover;
 
 function showAreaName(name) {
   areaName.textContent = name ?? selectedLayer?.feature.properties.name ?? DEFAULT_LABEL;
 }
 
+function updateBackButton() {
+  backButton.hidden = !selectedLayer && !selectedPlayground;
+}
+
+function snapshotViewport() {
+  return { center: map.getCenter(), zoom: map.getZoom() };
+}
+
+function markerStyle(marker) {
+  if (marker === selectedPlaygroundMarker) return SELECTED_STYLE;
+  if (marker === previewMarker) return PREVIEW_STYLE;
+  return DEFAULT_STYLE;
+}
+
+function updateMarkerStyle(marker) {
+  marker.setStyle(markerStyle(marker));
+}
+
+function closePreview() {
+  if (previewPopup) {
+    map.closePopup(previewPopup);
+    previewPopup = undefined;
+  }
+  if (previewMarker) {
+    updateMarkerStyle(previewMarker);
+    previewMarker = undefined;
+  }
+}
+
+function closeDetails() {
+  detailRequest?.abort();
+  detailRequest = undefined;
+  selectedPlaygroundMarker = undefined;
+  selectedPlayground = undefined;
+  for (const marker of playgrounds.getLayers()) updateMarkerStyle(marker);
+  details.hidden = true;
+  detailsContent.replaceChildren();
+  updateBackButton();
+}
+
+function goBack() {
+  if (selectedPlayground) {
+    closeDetails();
+    return;
+  }
+  if (!selectedLayer) return;
+
+  const viewport = savedViewport;
+  areas.resetStyle(selectedLayer);
+  selectedLayer = undefined;
+  savedViewport = undefined;
+  suppressHover = false;
+  showAreaName();
+  updateBackButton();
+  if (viewport) map.setView(viewport.center, viewport.zoom, { animate: false });
+}
+
 function selectArea(feature, layer) {
-  if (selectedLayer) areas.resetStyle(selectedLayer);
+  if (selectedPlayground) closeDetails();
+  if (!selectedLayer) savedViewport = snapshotViewport();
+  if (selectedLayer && selectedLayer !== layer) areas.resetStyle(selectedLayer);
   selectedLayer = layer;
   suppressHover = true;
   layer.setStyle(SELECTED_STYLE);
   showAreaName(feature.properties.name);
+  updateBackButton();
   map.fitBounds(layer.getBounds(), { maxZoom: 16, padding: [40, 40] });
 }
 
@@ -112,7 +214,12 @@ function onEachArea(feature, layer) {
 
 const areas = L.geoJSON(null, {
   pane: "areas",
-  style: DEFAULT_STYLE,
+  style: {
+    color: "#25766f",
+    fillColor: "#83c9bf",
+    fillOpacity: 0.22,
+    weight: 1.5,
+  },
   onEachFeature: onEachArea,
 }).addTo(map);
 
@@ -129,48 +236,218 @@ function addAreaData(url, fitMap = false) {
     .catch((error) => console.error(error));
 }
 
-function playgroundPopup(playground) {
-  const content = document.createElement("div");
+function capabilityLabel(value) {
+  return CAPABILITY_LABELS[value] ?? value.toLowerCase().replaceAll("_", " ");
+}
+
+function formatAge(minAge, maxAge) {
+  if (minAge != null && maxAge != null) return `${minAge}–${maxAge} years`;
+  if (minAge != null) return `${minAge}+ years`;
+  if (maxAge != null) return `Up to ${maxAge} years`;
+  return "Age not recorded";
+}
+
+function equipmentItems(playground) {
+  return playground.equipment ?? playground.capabilities?.map((capability) => ({ capability, count: null })) ?? [];
+}
+
+function equipmentSummary(playground) {
+  const items = equipmentItems(playground);
+  if (!items.length) return "No equipment recorded";
+  return items
+    .map(({ capability, count }) => `${capabilityLabel(capability)}${count == null ? "" : ` (${count})`}`)
+    .join(", ");
+}
+
+function image(url, alt, className) {
+  const element = document.createElement("img");
+  element.src = url;
+  element.alt = alt;
+  element.loading = "lazy";
+  if (className) element.className = className;
+  element.addEventListener("error", () => element.remove());
+  return element;
+}
+
+function playgroundPreview(playground) {
+  const content = document.createElement("article");
+  content.className = "playground-preview";
+  if (playground.photoUrls?.[0]) {
+    content.append(image(playground.photoUrls[0], "", "preview-photo"));
+  }
   const title = document.createElement("strong");
-  title.textContent = playground.name ?? "Playground";
+  title.textContent = playground.name ?? "Unnamed playground";
   content.append(title);
 
-  if (playground.capabilities.length) {
-    const capabilities = document.createElement("div");
-    capabilities.textContent = playground.capabilities
-      .map((value) => value.toLowerCase().replaceAll("_", " "))
-      .join(", ");
-    content.append(capabilities);
-  }
+  const age = document.createElement("p");
+  age.textContent = `Recommended age: ${formatAge(playground.minAge, playground.maxAge)}`;
+  content.append(age);
 
-  const source = document.createElement("a");
-  source.href = playground.source.url;
-  source.target = "_blank";
-  source.rel = "noreferrer";
-  source.textContent = "OpenStreetMap";
-  content.append(source);
+  const equipment = document.createElement("p");
+  equipment.textContent = equipmentSummary(playground);
+  content.append(equipment);
+
+  const rating = document.createElement("p");
+  rating.textContent = "No ratings yet";
+  content.append(rating);
   return content;
 }
 
+function showPreview(playground, marker) {
+  if (selectedPlayground) return;
+  closePreview();
+  previewMarker = marker;
+  updateMarkerStyle(marker);
+  previewPopup = L.popup({
+    autoPan: false,
+    closeButton: false,
+    className: "playground-preview-popup",
+    offset: [0, -12],
+  })
+    .setLatLng(marker.getLatLng())
+    .setContent(playgroundPreview(playground))
+    .openOn(map);
+}
+
+function renderDetails(playground) {
+  detailsContent.replaceChildren();
+  if (!playground) {
+    const message = document.createElement("p");
+    message.textContent = "Playground details are unavailable.";
+    detailsContent.append(message);
+    return;
+  }
+
+  detailsTitle.textContent = playground.name ?? "Unnamed playground";
+
+  const gallery = document.createElement("div");
+  gallery.className = "playground-gallery";
+  if (playground.photoUrls?.length) {
+    for (const url of playground.photoUrls) gallery.append(image(url, "Playground", "detail-photo"));
+  } else {
+    const empty = document.createElement("p");
+    empty.textContent = "No photos recorded";
+    gallery.append(empty);
+  }
+  detailsContent.append(gallery);
+
+  const ageSection = document.createElement("section");
+  ageSection.innerHTML = "<h3>Recommended age</h3>";
+  const age = document.createElement("p");
+  age.textContent = formatAge(playground.minAge, playground.maxAge);
+  ageSection.append(age);
+  detailsContent.append(ageSection);
+
+  const equipmentSection = document.createElement("section");
+  equipmentSection.innerHTML = "<h3>Equipment</h3>";
+  const equipment = equipmentItems(playground);
+  if (equipment.length) {
+    const list = document.createElement("ul");
+    for (const item of equipment) {
+      const entry = document.createElement("li");
+      entry.textContent = `${capabilityLabel(item.capability)} — ${item.count == null ? "quantity unknown" : item.count}`;
+      list.append(entry);
+    }
+    equipmentSection.append(list);
+  } else {
+    const empty = document.createElement("p");
+    empty.textContent = "No equipment recorded";
+    equipmentSection.append(empty);
+  }
+  detailsContent.append(equipmentSection);
+
+  const reviews = document.createElement("section");
+  reviews.innerHTML = "<h3>Platform reviews</h3>";
+  const reviewState = document.createElement("p");
+  reviewState.textContent = "No ratings yet. No reviews yet.";
+  reviews.append(reviewState);
+  detailsContent.append(reviews);
+
+  const source = document.createElement("section");
+  source.innerHTML = "<h3>Source</h3>";
+  const sourceLink = document.createElement("a");
+  sourceLink.href = playground.source.url;
+  sourceLink.target = "_blank";
+  sourceLink.rel = "noreferrer";
+  sourceLink.textContent = "OpenStreetMap";
+  source.append(sourceLink);
+  const attribution = document.createElement("p");
+  attribution.textContent = `${playground.source.attribution} · ${playground.source.license}`;
+  source.append(attribution);
+  detailsContent.append(source);
+}
+
+async function openDetails(summary, marker) {
+  closePreview();
+  if (selectedPlaygroundMarker && selectedPlaygroundMarker !== marker) {
+    updateMarkerStyle(selectedPlaygroundMarker);
+  }
+  selectedPlayground = summary;
+  selectedPlaygroundMarker = marker;
+  updateMarkerStyle(marker);
+  updateBackButton();
+  details.hidden = false;
+  detailsTitle.textContent = summary.name ?? "Playground details";
+  detailsContent.replaceChildren();
+  const loading = document.createElement("p");
+  loading.textContent = "Loading playground details…";
+  detailsContent.append(loading);
+
+  detailRequest?.abort();
+  const request = new AbortController();
+  detailRequest = request;
+  try {
+    const response = await fetch(API_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: request.signal,
+      body: JSON.stringify({
+        query: PLAYGROUND_DETAIL_QUERY,
+        variables: { id: summary.id },
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok || result.errors) {
+      throw new Error(result.errors?.[0]?.message ?? `Playground API failed: ${response.status}`);
+    }
+    if (detailRequest === request) renderDetails(result.data.playground);
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      console.error("Playground details unavailable", error);
+      if (detailRequest === request) renderDetails(null);
+    }
+  }
+}
+
 function renderPlaygrounds(items) {
+  closePreview();
   playgrounds.clearLayers();
   for (const playground of items) {
-    const label = playground.name ?? "Playground";
+    const label = playground.name ?? "Unnamed playground";
     const marker = L.circleMarker(
       [playground.location.latitude, playground.location.longitude],
-      { ...PLAYGROUND_STYLE, pane: "playgrounds" },
-    )
-      .bindPopup(playgroundPopup(playground))
-      .addTo(playgrounds);
+      { ...DEFAULT_STYLE, pane: "playgrounds" },
+    ).addTo(playgrounds);
+    marker.on({
+      mouseover: () => showPreview(playground, marker),
+      mouseout: closePreview,
+      click: () => openDetails(playground, marker),
+    });
     const element = marker.getElement();
     element?.setAttribute("tabindex", "0");
     element?.setAttribute("role", "button");
-    element?.setAttribute("aria-label", label);
+    element?.setAttribute("aria-label", `Open details for ${label}`);
+    element?.addEventListener("focus", () => showPreview(playground, marker));
+    element?.addEventListener("blur", closePreview);
     element?.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      marker.openPopup();
+      openDetails(playground, marker);
     });
+    if (selectedPlayground?.id === playground.id) {
+      selectedPlaygroundMarker = marker;
+      updateMarkerStyle(marker);
+    }
   }
 }
 
@@ -211,6 +488,11 @@ async function loadPlaygrounds() {
   }
 }
 
+backButton.addEventListener("click", goBack);
+detailsClose.addEventListener("click", goBack);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") goBack();
+});
 map.on("moveend", loadPlaygrounds);
 addAreaData("/data/sofia-neighborhoods.geojson", true).then(() =>
   addAreaData("/data/sofia-discovery-areas.geojson"),

@@ -61,6 +61,29 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | POINTER-007 | High | Click South Park, then Sofia Zoo. | Each real facility polygon becomes selected and the map zooms to fit it; similarly named neighborhood polygons do not intercept the click. | User request |
 | POINTER-008 | High | Open named and unnamed playground pins. | Popup shows safe name fallback, capabilities when present, and an OpenStreetMap link. | User request |
 
+## Playground Preview and Details
+
+| ID | Priority | Test steps | Expected result | Coverage source |
+| --- | --- | --- | --- | --- |
+| PLAYGROUND-001 | High | Hover a playground pin with a photo, age, and equipment. | Compact preview shows the photo, name, age, equipment summary, `No ratings yet`, and preview pin styling. | Browser check and `src/main.js` |
+| PLAYGROUND-002 | High | Focus a playground pin with `Tab`, then move focus away. | The same preview and styling appear on focus, then close and reset on focus exit. | Browser check and `src/main.js` |
+| PLAYGROUND-003 | High | Preview a playground with no name, photo, age, equipment, or ratings. | The preview uses an unnamed fallback and honest empty or unknown states; no fabricated rating appears. | Browser check and `src/main.js` |
+| PLAYGROUND-004 | High | Click or tap a playground pin. | A semantic detail view opens with all photos, age, equipment counts or unknown quantities, empty platform-review state, OpenStreetMap source attribution, and selected pin styling. | Browser check and `src/main.js` |
+| PLAYGROUND-005 | High | Focus a playground pin and press `Enter`, then repeat with `Space`. | Both keys open the same detail view without scrolling the page. | Browser check and `src/main.js` |
+| PLAYGROUND-006 | High | Open one detail view, then quickly open another pin. | The stale detail request is aborted and only the latest playground details are rendered. | Source review and browser network check |
+| PLAYGROUND-007 | High | Open an incomplete playground detail. | Missing photos, age, equipment counts, ratings, and reviews are labeled as empty or unknown; no values are inferred. | Browser check and `src/main.js` |
+| PLAYGROUND-008 | High | Open details at 320 × 640 px. | Details fill the phone viewport, the Back control remains visible, and the page has no horizontal scrolling. | Browser check and responsive CSS |
+| PLAYGROUND-009 | Medium | Open details at 768 px and 1280 px widths. | Details remain usable beside or over the map; gallery, source link, and selected styling do not clip. | Browser check and responsive CSS |
+
+## Focused Map Navigation
+
+| ID | Priority | Test steps | Expected result | Coverage source |
+| --- | --- | --- | --- | --- |
+| NAV-001 | High | Record the map view, select an area, then press Back. | Area focus clears and the view returns to the saved pre-selection center and zoom. | Browser check and `src/main.js` |
+| NAV-002 | High | Select an area, open a playground detail, then press Back twice. | First Back closes details while keeping area focus and viewport; second Back clears area focus and restores the prior viewport. | Browser check and `src/main.js` |
+| NAV-003 | High | Repeat NAV-001 and NAV-002 with `Escape`. | Escape performs the same state transitions as Back. | Browser check and `src/main.js` |
+| NAV-004 | High | Press `Escape` in the default state. | Nothing changes; native Leaflet wheel, touch, keyboard, and zoom-control behavior remains available without `Ctrl`. | Browser check and Leaflet behavior |
+
 ## Keyboard and Accessibility
 
 | ID | Priority | Test steps | Expected result | Coverage source |
