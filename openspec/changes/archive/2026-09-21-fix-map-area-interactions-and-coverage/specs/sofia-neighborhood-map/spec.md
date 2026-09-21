@@ -1,10 +1,6 @@
-# Sofia Neighborhood Map Specification
+# Spec Delta
 
-## Purpose
-
-Provides a mobile-friendly map for discovering and selecting everyday neighborhoods within Sofia city using readable English-transliterated names.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Display Sofia neighborhood map
 The system SHALL open with an interactive map focused on Sofia and SHALL display one interactive polygon boundary for each supported everyday neighborhood within Sofia city.
@@ -25,13 +21,6 @@ The system SHALL open with an interactive map focused on Sofia and SHALL display
 - **WHEN** a broad neighborhood polygon overlaps its supported named subdivisions
 - **THEN** the system displays the subdivisions as separate interactive boundaries
 - **AND** does not display the broad polygon as an interactive area
-
-### Requirement: Limit coverage to Sofia city
-The system SHALL exclude surrounding towns and villages from the neighborhood dataset shown on the map.
-
-#### Scenario: Map includes only Sofia city neighborhoods
-- **WHEN** the neighborhood layer loads
-- **THEN** no polygon representing a surrounding town or village is displayed
 
 ### Requirement: Use English-transliterated neighborhood names
 The system SHALL present every displayed neighborhood name in a curated Latin-script form understandable to foreign visitors.
@@ -111,23 +100,6 @@ The system SHALL display every playground returned for the visible map bounds as
 - **WHEN** a playground pin appears on the map
 - **THEN** its default appearance is visually distinct from area preview and selected-playground styling
 
-### Requirement: Preview playgrounds from the map
-The system SHALL let a visitor preview a playground without first selecting or zooming into its neighborhood, and SHALL visibly distinguish the previewed playground pin.
-
-#### Scenario: Pointer visitor previews a playground
-- **WHEN** a visitor points at a playground pin on a hover-capable device
-- **THEN** the system displays a compact preview with the recorded main photo when available, name or unnamed fallback, recommended age when available, equipment summary, and platform rating state
-- **AND** the pin receives preview styling
-
-#### Scenario: Keyboard visitor previews a playground
-- **WHEN** a visitor moves keyboard focus to a playground pin
-- **THEN** the system displays the same compact preview available to a pointer visitor
-
-#### Scenario: Playground has no platform ratings
-- **WHEN** the compact preview has no platform rating data
-- **THEN** the system displays `No ratings yet`
-- **AND** the system does not display a fabricated rating or Google review data
-
 ### Requirement: Open responsive playground details
 The system SHALL let a visitor open a selected playground's details from its map pin and SHALL keep that pin visibly selected while the details remain open.
 
@@ -172,17 +144,3 @@ The system SHALL provide a visible Back control and keyboard Escape behavior tha
 #### Scenario: Visitor uses standard map zoom controls
 - **WHEN** a visitor zooms with the available mouse wheel, touch gesture, keyboard, or visible zoom controls
 - **THEN** the map zooms without requiring a `Ctrl` modifier
-
-### Requirement: Support phone and tablet use
-The system SHALL keep the map and neighborhood selection usable at phone, tablet, and desktop viewport sizes.
-
-#### Scenario: Visitor uses a phone-sized viewport
-- **WHEN** the map is viewed at 320 CSS pixels wide
-- **THEN** map controls, attribution, and selected neighborhood name remain visible and usable without horizontal scrolling
-
-### Requirement: Show attribution
-The system SHALL display attribution required by the map tile and neighborhood geometry sources.
-
-#### Scenario: Visitor views source attribution
-- **WHEN** the map is visible
-- **THEN** required attribution remains visible and accessible
