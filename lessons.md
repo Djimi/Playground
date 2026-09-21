@@ -9,3 +9,5 @@
 - Interpret "things where kids can play" as physical play equipment such as swings and slides, with optional counts; do not reinterpret it as review criteria.
 - Never suggest fake production ratings. Show an unrated state, or label hardcoded values clearly as demo data during UI prototyping.
 - When an OpenSpec implementation is complete, sync its delta specifications and archive the change before committing when the user requests it.
+- Do not call missing dialog focus management "lost focus" without reproducing it; distinguish focus not entering the dialog from focus left inside hidden content after close.
+- For OpenSpec onboarding, prefer a small visible bug the user can reproduce before and after the fix; do not lead with an abstract quality issue.

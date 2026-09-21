@@ -75,6 +75,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | PLAYGROUND-007 | High | Open an incomplete playground detail. | Missing photos, age, equipment counts, ratings, and reviews are labeled as empty or unknown; no values are inferred. | Browser check and `src/main.js` |
 | PLAYGROUND-008 | High | Open details at 320 × 640 px. | Details fill the phone viewport, the Back control remains visible, and the page has no horizontal scrolling. | Browser check and responsive CSS |
 | PLAYGROUND-009 | Medium | Open details at 768 px and 1280 px widths. | Details remain usable beside or over the map; gallery, source link, and selected styling do not clip. | Browser check and responsive CSS |
+| PLAYGROUND-010 | High | Hover a playground pin, then click it while the compact preview is visible. | The details panel opens and remains visible; the selected pin uses orange styling. | Pointer activation regression check |
 
 ## Focused Map Navigation
 
