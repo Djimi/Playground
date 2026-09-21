@@ -70,8 +70,8 @@ The system SHALL return a stable identifier, optional name, representative locat
 - **THEN** the API returns that field as `null` or an empty list as defined by the GraphQL schema
 - **AND** the system does not infer an unsupported value
 
-### Requirement: Bound playground search results
-The system SHALL accept a result limit, apply a documented default when omitted, reject limits above the documented maximum, and return results in deterministic order.
+### Requirement: Bound and page playground search results
+The system SHALL accept a result limit and non-negative offset, apply documented defaults when omitted, reject invalid values, and return results in deterministic order.
 
 #### Scenario: Client omits result limit
 - **WHEN** a client searches without a result limit
@@ -79,6 +79,14 @@ The system SHALL accept a result limit, apply a documented default when omitted,
 
 #### Scenario: Client exceeds result limit
 - **WHEN** a client supplies a limit above the documented maximum
+- **THEN** the system returns a GraphQL input error
+
+#### Scenario: Client requests a later page
+- **WHEN** a client supplies a non-negative offset
+- **THEN** the system skips that many deterministically ordered playgrounds
+
+#### Scenario: Client supplies a negative offset
+- **WHEN** a client supplies a negative offset
 - **THEN** the system returns a GraphQL input error
 
 ### Requirement: Import Sofia playgrounds from OpenStreetMap

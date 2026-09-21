@@ -26,10 +26,11 @@ The example environment values are for local development only. Change
 npm run dev
 ```
 
-Open the URL printed by Vite, usually `http://127.0.0.1:5173/`.
+Open the URL printed by Vite, usually `http://localhost:5173/`.
 
-The current frontend remains a static neighborhood map. Backend playground
-integration is separate.
+The frontend loads selectable neighborhood, South Park, and Sofia Zoo polygons.
+It also queries the backend for playground pins inside the visible map bounds,
+so run the backend and import once to see pins.
 
 ## Run the backend
 
@@ -88,7 +89,8 @@ is a shared public service; run imports manually and respect its usage policy.
 | `POSTGRES_PASSWORD` | `playground` | Local database password and API connection password |
 | `POSTGRES_PORT` | `5432` | Host port for PostGIS |
 | `API_PORT` | `3000` | Host port for API and GraphiQL |
-| `FRONTEND_ORIGIN` | `http://127.0.0.1:5173` | Only browser origin allowed by API CORS |
+| `FRONTEND_ORIGIN` | `http://localhost:5173` | Only direct browser origin allowed by API CORS |
+| `VITE_API_URL` | `/graphql` | Browser API URL; the Vite dev server proxies this to `API_PORT` |
 | `OVERPASS_URL` | `https://overpass-api.de/api/interpreter` | Import source endpoint |
 | `DATABASE_URL` | Set by Compose | Required PostgreSQL connection for direct Rust runs |
 | `API_ADDR` | `0.0.0.0:3000` | API bind address inside its runtime |
@@ -128,7 +130,10 @@ Each PostGIS integration test creates and drops its own temporary database.
 node scripts/prepare-neighborhoods.mjs
 ```
 
-This calls Overpass and Nominatim, batches requests, and writes the local GeoJSON file under `public/data/`. Respect upstream rate limits. Read [public/data/README.md](public/data/README.md) before redistributing the data.
+This calls Overpass and Nominatim, batches requests, and writes the neighborhood
+and discovery-area GeoJSON files under `public/data/`. Respect upstream rate
+limits. Read [public/data/README.md](public/data/README.md) before redistributing
+the data.
 
 ## Stop the dev server
 

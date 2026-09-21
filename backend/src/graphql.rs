@@ -188,10 +188,11 @@ impl QueryRoot {
         context: &Context<'_>,
         filter: Option<PlaygroundFilter>,
         #[graphql(default = 200)] limit: i32,
+        #[graphql(default = 0)] offset: i32,
     ) -> GraphqlResult<Vec<Playground>> {
-        validate_search(filter.as_ref(), limit)?;
+        validate_search(filter.as_ref(), limit, offset)?;
         let pool = context.data::<PgPool>()?;
-        let rows = search(pool, filter.as_ref(), limit)
+        let rows = search(pool, filter.as_ref(), limit, offset)
             .await
             .map_err(internal_error)?;
         rows.into_iter().map(PlaygroundRow::into_graphql).collect()
@@ -218,9 +219,16 @@ fn validate_coordinate(value: CoordinateInput) -> GraphqlResult<()> {
     Ok(())
 }
 
-fn validate_search(filter: Option<&PlaygroundFilter>, limit: i32) -> GraphqlResult<()> {
+fn validate_search(
+    filter: Option<&PlaygroundFilter>,
+    limit: i32,
+    offset: i32,
+) -> GraphqlResult<()> {
     if !(1..=500).contains(&limit) {
         return Err(Error::new("limit must be between 1 and 500"));
+    }
+    if offset < 0 {
+        return Err(Error::new("offset must not be negative"));
     }
 
     let Some(filter) = filter else {
@@ -296,6 +304,7 @@ async fn search(
     pool: &PgPool,
     filter: Option<&PlaygroundFilter>,
     limit: i32,
+    offset: i32,
 ) -> sqlx::Result<Vec<PlaygroundRow>> {
     let mut query = QueryBuilder::<Postgres>::new(SELECT_PLAYGROUND);
     let radius = filter.and_then(|value| value.center.zip(value.radius_meters));
@@ -367,6 +376,8 @@ async fn search(
     }
     query.push(" LIMIT ");
     query.push_bind(i64::from(limit));
+    query.push(" OFFSET ");
+    query.push_bind(i64::from(offset));
     query
         .build_query_as::<PlaygroundRow>()
         .fetch_all(pool)
@@ -441,8 +452,8 @@ mod tests {
 
     #[test]
     fn validates_search_inputs_before_querying() {
-        assert!(validate_search(Some(&valid_filter()), 1).is_ok());
-        assert!(validate_search(Some(&valid_filter()), 500).is_ok());
+        assert!(validate_search(Some(&valid_filter()), 1, 0).is_ok());
+        assert!(validate_search(Some(&valid_filter()), 500, 1_000).is_ok());
 
         let invalid = [
             PlaygroundFilter {
@@ -503,10 +514,11 @@ mod tests {
             },
         ];
         for filter in &invalid {
-            assert!(validate_search(Some(filter), 200).is_err());
+            assert!(validate_search(Some(filter), 200, 0).is_err());
         }
-        assert!(validate_search(None, 0).is_err());
-        assert!(validate_search(None, 501).is_err());
+        assert!(validate_search(None, 0, 0).is_err());
+        assert!(validate_search(None, 501, 0).is_err());
+        assert!(validate_search(None, 200, -1).is_err());
     }
 
     #[test]
@@ -523,7 +535,9 @@ mod tests {
             .data(lazy_pool())
             .finish();
         let sdl = schema.sdl();
-        assert!(sdl.contains("playgrounds(filter: PlaygroundFilter, limit: Int! = 200)"));
+        assert!(sdl.contains(
+            "playgrounds(filter: PlaygroundFilter, limit: Int! = 200, offset: Int! = 0)"
+        ));
         assert!(sdl.contains("playground(id: ID!)"));
         assert!(!sdl.contains("type Mutation"));
 

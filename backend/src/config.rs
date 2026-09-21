@@ -17,7 +17,7 @@ impl Config {
             .parse()
             .context("API_ADDR must be a socket address")?;
         let frontend_origin =
-            env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "http://127.0.0.1:5173".into());
+            env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "http://localhost:5173".into());
 
         Ok(Self {
             database_url,
