@@ -13,7 +13,16 @@ DATABASE_URL=postgres://playground:playground@127.0.0.1:5432/playground \
   cargo test --manifest-path backend/Cargo.toml
 ```
 
-Start the application with `npm run dev`, then run the manual cases below. Test at 320 px phone, 768 px tablet, and desktop widths unless a case specifies otherwise.
+Start the application with `npm run start:local`, then run the manual cases below. The command must report successful frontend and GraphQL smoke checks before browser testing begins. It does not import playground data automatically; run the documented import command only when pin data is needed. Test at 320 px phone, 768 px tablet, and desktop widths unless a case specifies otherwise.
+
+## Local startup smoke checks
+
+| ID | Priority | Test | Expected result | Coverage source |
+| --- | --- | --- | --- | --- |
+| START-001 | High | Run `npm run start:local` from the repository root with Docker and npm dependencies available. | PostGIS, API, and Vite start; the command reports frontend and GraphQL URLs only after both checks pass. | Startup script |
+| START-002 | High | Run the command without a required local tool or dependency. | The command identifies the missing prerequisite and exits non-zero without claiming readiness. | Startup script |
+| START-003 | High | Press `Ctrl+C` after startup succeeds, then run the command again. | Vite exits cleanly and the named Postgres volume remains reusable. | Startup script |
+| START-004 | Medium | Start without running the Overpass importer. | Startup succeeds with an empty catalog; no external import is triggered. | Startup script and API smoke query |
 
 ## Data and Build
 
