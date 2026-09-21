@@ -70,6 +70,27 @@ The system SHALL return a stable identifier, optional name, representative locat
 - **THEN** the API returns that field as `null` or an empty list as defined by the GraphQL schema
 - **AND** the system does not infer an unsupported value
 
+### Requirement: Return structured playground equipment inventory
+The system SHALL return each recorded supported play-equipment type once with an optional positive count while preserving the existing capability list for compatible filtering and clients.
+
+#### Scenario: Source records separate equipment features
+- **WHEN** an imported playground contains one or more separately mapped supported equipment features of the same type
+- **THEN** the equipment inventory returns that type with the number of mapped features as its count
+
+#### Scenario: Source records equipment presence without quantity
+- **WHEN** source data records a supported equipment type but provides no reliable quantity
+- **THEN** the equipment inventory returns that type with a `null` count
+- **AND** the system does not report zero or infer a quantity
+
+#### Scenario: Source records no equipment information
+- **WHEN** source data records no supported equipment for a playground
+- **THEN** the equipment inventory is empty
+
+#### Scenario: Client retrieves equipment inventory
+- **WHEN** a client requests a playground through search or single-playground lookup
+- **THEN** equipment entries are returned in deterministic type order
+- **AND** every counted type is also present in the existing capability list
+
 ### Requirement: Bound and page playground search results
 The system SHALL accept a result limit and non-negative offset, apply documented defaults when omitted, reject invalid values, and return results in deterministic order.
 
