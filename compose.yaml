@@ -22,7 +22,7 @@ services:
     environment:
       DATABASE_URL: postgres://playground:${POSTGRES_PASSWORD:-playground}@db:5432/playground
       API_ADDR: 0.0.0.0:3000
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://127.0.0.1:5173}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
       NEIGHBORHOODS_PATH: /app/public/data/sofia-neighborhoods.geojson
     ports:
@@ -33,4 +33,3 @@ services:
 
 volumes:
   playground-postgres:
-

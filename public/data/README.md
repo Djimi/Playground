@@ -11,6 +11,14 @@ Source: [OpenStreetMap](https://www.openstreetmap.org/) neighborhood boundary re
 
 The bundled GeoJSON is a normalized derivative database. It remains available under ODbL 1.0. Normalization keeps polygon relations tagged as Sofia suburbs, quarters, or neighborhoods; assigns stable relation IDs; and stores curated Latin-script display names. `EXCLUDED_NAMES` in the preparation script explicitly removes outlying settlements that fall outside the Sofia-town neighborhood scope.
 
+## Discovery-area boundaries
+
+`sofia-discovery-areas.geojson` contains the complete South Park boundary from
+[relation 16878152](https://www.openstreetmap.org/relation/16878152) and Sofia
+Zoo from [way 157686292](https://www.openstreetmap.org/way/157686292). The same
+preparation script refreshes this separate file so parks and attractions are
+not imported as neighborhoods by the backend.
+
 ## Playground catalog
 
 The backend importer fetches Sofia features tagged `leisure=playground` from

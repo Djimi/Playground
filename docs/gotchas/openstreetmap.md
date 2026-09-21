@@ -12,10 +12,14 @@ Verify the attribution link in the map and [public/data/README.md](../../public/
 
 ## Public APIs are rate-limited
 
-Symptom: Overpass or Nominatim requests return 429, 504, or intermittent failures.
+Symptom: Overpass or Nominatim requests return 406, 429, 504, or intermittent failures.
 
-Cause: public services limit request frequency and query size.
+Cause: public services limit request frequency and query size. Overpass can
+also reject a client without a descriptive `User-Agent` with HTTP 406.
 
-Fix: batch lookups, add delays and retries, send a descriptive `User-Agent`, and keep downloaded data local at runtime.
+Fix: batch lookups, add delays and retries, send a descriptive `User-Agent`,
+and keep downloaded data local at runtime. If one configured Overpass instance
+returns 406 or 429, retry later or select another trusted instance through
+`OVERPASS_URL`; do not bypass import validation.
 
 Verify with `node scripts/prepare-neighborhoods.mjs`; do not call these services from the browser.

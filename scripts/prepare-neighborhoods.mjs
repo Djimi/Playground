@@ -3,7 +3,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/lookup";
 const OUTPUT = new URL("../public/data/sofia-neighborhoods.geojson", import.meta.url);
+const DISCOVERY_OUTPUT = new URL("../public/data/sofia-discovery-areas.geojson", import.meta.url);
 const USER_AGENT = "SofiaPlaygrounds/0.1 (local development)";
+const DISCOVERY_AREAS = [
+  { osmId: "R16878152", id: "osm-relation-16878152", name: "South Park", areaType: "park" },
+  { osmId: "W157686292", id: "osm-way-157686292", name: "Sofia Zoo", areaType: "zoo" },
+];
 const REQUIRED_NAMES = new Map([
   [16863633, "Lozenets"],
   [16864393, "Mladost 1"],
@@ -135,6 +140,30 @@ const groupedFeatures = Object.values(Object.groupBy(features, (feature) => feat
   })
   .sort((a, b) => a.properties.name.localeCompare(b.properties.name, "en"));
 
+const discoveryLookup = new URL(NOMINATIM_URL);
+discoveryLookup.searchParams.set("format", "geojson");
+discoveryLookup.searchParams.set("polygon_geojson", "1");
+discoveryLookup.searchParams.set("osm_ids", DISCOVERY_AREAS.map(({ osmId }) => osmId).join(","));
+const discoveryResult = await getJson(discoveryLookup);
+const discoveryById = new Map(
+  discoveryResult.features.map((feature) => [
+    `${feature.properties.osm_type[0].toUpperCase()}${feature.properties.osm_id}`,
+    feature,
+  ]),
+);
+const discoveryFeatures = DISCOVERY_AREAS.map((area) => {
+  const feature = discoveryById.get(area.osmId);
+  if (!feature || !["Polygon", "MultiPolygon"].includes(feature.geometry?.type)) {
+    throw new Error(`Missing polygon geometry for ${area.name}`);
+  }
+  return {
+    type: "Feature",
+    id: `${feature.properties.osm_type}/${feature.properties.osm_id}`,
+    properties: { id: area.id, name: area.name, areaType: area.areaType },
+    geometry: feature.geometry,
+  };
+});
+
 await mkdir(new URL("../public/data/", import.meta.url), { recursive: true });
 await writeFile(
   OUTPUT,
@@ -148,5 +177,18 @@ await writeFile(
     features: groupedFeatures,
   })}\n`,
 );
+await writeFile(
+  DISCOVERY_OUTPUT,
+  `${JSON.stringify({
+    type: "FeatureCollection",
+    source: "OpenStreetMap relation 16878152 and way 157686292",
+    scope: { city: "Sofia" },
+    retrieved: new Date().toISOString().slice(0, 10),
+    license: "ODbL-1.0",
+    attribution: "© OpenStreetMap contributors",
+    features: discoveryFeatures,
+  })}\n`,
+);
 
 console.log(`Wrote ${groupedFeatures.length} neighborhoods to ${OUTPUT.pathname}`);
+console.log(`Wrote ${discoveryFeatures.length} discovery areas to ${DISCOVERY_OUTPUT.pathname}`);

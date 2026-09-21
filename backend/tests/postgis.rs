@@ -129,6 +129,22 @@ async fn graphql_queries_use_postgis_and_combine_catalog_filters(pool: PgPool) {
         ])
     );
 
+    let second_page = graphql(
+        &app,
+        r#"{
+          playgrounds(
+            filter: { bounds: { southWest: { longitude: -0.01, latitude: -0.01 }, northEast: { longitude: 0.01, latitude: 0.01 } } }
+            limit: 2
+            offset: 2
+          ) { id }
+        }"#,
+    )
+    .await;
+    assert_eq!(
+        second_page["data"]["playgrounds"],
+        json!([{ "id": "graphql-test/c" }, { "id": "graphql-test/d" }])
+    );
+
     let radius = graphql(
         &app,
         r#"{

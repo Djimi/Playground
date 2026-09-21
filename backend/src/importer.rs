@@ -120,6 +120,7 @@ pub async fn fetch_overpass(url: &str) -> Result<String> {
     let response = reqwest::Client::new()
         .post(url)
         .header("content-type", "application/x-www-form-urlencoded")
+        .header("user-agent", "SofiaPlaygrounds/0.1 (local import)")
         .body(format!("data={}", form_encode(OVERPASS_QUERY)))
         .send()
         .await

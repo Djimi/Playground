@@ -24,6 +24,7 @@ Start the application with `npm run dev`, then run the manual cases below. Test 
 | DATA-003 | High | Check all displayed names. | Names contain no Cyrillic characters. | Automated test |
 | DATA-004 | High | Check required neighborhoods. | Lozenets and Mladost 1, 1A, 2, 3, and 4 are present. | Automated test and UI review |
 | DATA-005 | High | Check excluded outlying settlements. | Benkovski, Chelopechene, Kremikovtsi, Seslavtsi, and Trebich are absent. | Reported regression and automated test |
+| DATA-006 | High | Load `public/data/sofia-discovery-areas.geojson`. | Exact South Park relation `16878152` and Sofia Zoo way `157686292` polygons are present with ODbL metadata. | Automated test |
 | BUILD-001 | High | Run `npm run build`. | Vite production build exits successfully. | Automated build |
 | BUILD-002 | Medium | Run `npm audit`. | No known dependency vulnerabilities are reported. | Session verification |
 
@@ -36,6 +37,7 @@ Start the application with `npm run dev`, then run the manual cases below. Test 
 | MAP-003 | High | Pan the map, then zoom in and out. | Map moves and scales normally; polygon boundaries stay aligned. | Main session and subagent review |
 | MAP-004 | High | Inspect the map corner. | Leaflet and OpenStreetMap attribution remain visible and usable. | Main session and subagent review |
 | MAP-005 | Medium | Resize the browser after the map loads. | Map fills the new viewport without blank or stale tile regions. | Main session regression check |
+| MAP-006 | High | Start the API with imported data, then pan or zoom. | Playground pins refresh to match visible bounds and remain above area polygons. | Main session and source review |
 
 ## Pointer Selection and Hover
 
@@ -43,10 +45,12 @@ Start the application with `npm run dev`, then run the manual cases below. Test 
 | --- | --- | --- | --- | --- |
 | POINTER-001 | High | Click Lozenets. | Lozenets receives selected styling and its English name appears in the header. | Main session and subagent review |
 | POINTER-002 | High | Select Lozenets, then select Mladost 3. | Lozenets returns to default styling; only Mladost 3 remains selected. | Main session and subagent review |
-| POINTER-003 | Medium | Hover an unselected neighborhood. | Hovered polygon receives a clearly visible boundary/fill highlight and tooltip. | User-reported regression |
-| POINTER-004 | Medium | Move pointer away from an unselected neighborhood. | Polygon returns to default styling; no stale hover highlight remains. | User-reported regression |
+| POINTER-003 | High | Hover an unselected neighborhood, South Park, or Sofia Zoo. | Hovered polygon receives a clearly visible highlight and its name appears in the large header. | User request |
+| POINTER-004 | High | Move pointer away from an unselected area. | Polygon returns to default styling and the header restores the selected area name or default prompt. | User request |
 | POINTER-005 | Medium | Select a polygon, then hover it and move pointer away. | Selected styling remains after hover ends. | Hover regression follow-up |
 | POINTER-006 | Medium | Move pointer directly between adjacent polygons. | Highlight follows the pointer; previous polygon does not remain highlighted. | Hover regression follow-up |
+| POINTER-007 | High | Click South Park, then Sofia Zoo. | Each real facility polygon becomes selected and the map zooms to fit it; similarly named neighborhood polygons do not intercept the click. | User request |
+| POINTER-008 | High | Open named and unnamed playground pins. | Popup shows safe name fallback, capabilities when present, and an OpenStreetMap link. | User request |
 
 ## Keyboard and Accessibility
 
@@ -56,6 +60,7 @@ Start the application with `npm run dev`, then run the manual cases below. Test 
 | KEYBOARD-002 | High | Focus Lozenets and press `Enter`. | Lozenets becomes selected/highlighted and its name appears in the header. | Reported regression and Luna verification |
 | KEYBOARD-003 | High | Focus Mladost 1 and press `Space`. | Mladost 1 replaces the previous selection; page does not scroll. | Reported regression and Luna verification |
 | KEYBOARD-004 | High | Select one polygon by keyboard, then another. | Only the latest polygon keeps selected styling. | Luna verification |
+| KEYBOARD-005 | High | Focus a playground pin and press `Enter` or `Space`. | Its popup opens without scrolling the page. | Source and browser review |
 | ACCESS-001 | Medium | Change neighborhood selection. | Header name update is announced through the live region. | Source review |
 
 ## Responsive Layout
@@ -72,13 +77,15 @@ Start the application with `npm run dev`, then run the manual cases below. Test 
 | ID | Priority | Test steps | Expected result | Coverage source |
 | --- | --- | --- | --- | --- |
 | CONSOLE-001 | High | Load, pan, zoom, hover, click, and use keyboard selection while watching console. | No uncaught errors or failed local asset requests. | Builder subagent |
-| FAILURE-001 | Medium | Temporarily make the GeoJSON request fail in a test environment. | Header changes to `Neighborhoods unavailable`; error is logged once. | Future regression test |
+| FAILURE-001 | Medium | Temporarily make one GeoJSON request fail in a test environment. | Other polygon data remains usable and the failed request is logged. | Source review |
+| FAILURE-002 | Medium | Stop the API, then load and use the map. | Area polygons remain usable; missing playground pins produce no uncaught error. | Source and browser review |
 
 ## Session Findings Covered
 
 - Keyboard selection did not work with `Enter` or `Space`; covered by `KEYBOARD-001` through `KEYBOARD-004`.
 - Outlying settlements appeared as selectable neighborhoods; covered by `DATA-005`.
 - Hover showed a tooltip but did not visibly highlight the neighborhood boundary; covered by `POINTER-003` through `POINTER-006`.
+- South Park and Sofia Zoo were visible only in raster tiles; covered by `DATA-006` and `POINTER-007`.
 
 ## Backend API and Import
 
@@ -111,7 +118,7 @@ cargo test --manifest-path backend/Cargo.toml --test importer_postgis
 | GRAPHQL-002 | High | Search by bounds, radius, neighborhood, age, and multiple required capabilities. | Each filter works; combined filters use AND; radius results include meters. | `cargo test --manifest-path backend/Cargo.toml --test postgis` |
 | GRAPHQL-003 | High | Search with unknown age/capability metadata. | Unknown metadata never matches requested attribute filters. | `cargo test --manifest-path backend/Cargo.toml --test postgis` |
 | GRAPHQL-004 | High | Submit invalid coordinates, inverted bounds, incomplete center/radius, non-positive radius, age outside `0..=18`, or limit outside `1..=500`. | GraphQL returns a safe input error before database access. | `cargo test --manifest-path backend/Cargo.toml graphql::tests` |
-| GRAPHQL-005 | High | Omit limit, use maximum limit, then exceed maximum. | Default is 200; maximum 500 succeeds; larger values fail; ordering is deterministic. | GraphQL module and `postgis` test commands |
+| GRAPHQL-005 | High | Omit pagination, page with a non-negative offset, then submit invalid limit or offset values. | Defaults are limit 200 and offset 0; maximum limit 500 succeeds; ordering is deterministic; invalid values fail. | GraphQL module and `postgis` test commands |
 | GRAPHQL-006 | High | Fetch existing, incomplete, and unknown playground IDs. | Existing details include all recorded fields; missing optional data is `null` or empty; unknown ID returns `null`. | GraphQL module and `postgis` test commands |
 | CORS-001 | High | Send allowed-origin preflight and blocked-origin requests. | Configured Vite origin receives CORS headers; other origins do not. | `cargo test --manifest-path backend/Cargo.toml graphql::tests` |
 | SOURCE-001 | High | Query imported playground source fields. | Stable OSM ID, source URL, `© OpenStreetMap contributors`, and `ODbL-1.0` are returned. | GraphQL module and `postgis` test commands |
