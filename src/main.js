@@ -415,7 +415,7 @@ function renderPlaygrounds(items) {
     const label = playground.name ?? "Unnamed playground";
     const marker = L.circleMarker(
       [playground.location.latitude, playground.location.longitude],
-      { ...DEFAULT_PIN_STYLE, pane: "playgrounds" },
+      { ...DEFAULT_PIN_STYLE, pane: "playgrounds", bubblingMouseEvents: false },
     ).addTo(playgrounds);
     marker.on({
       mouseover: () => showPreview(playground, marker),
