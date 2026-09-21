@@ -20,7 +20,28 @@ cp .env.example .env
 The example environment values are for local development only. Change
 `POSTGRES_PASSWORD` if the database port is reachable by other machines.
 
-## Run the frontend
+## Start everything locally
+
+From the repository root:
+
+```bash
+npm run start:local
+```
+
+This starts the PostGIS database, GraphQL API, and Vite frontend, then waits
+for a successful frontend request and a real GraphQL query before reporting
+that the application is ready. It does not import playground data from
+Overpass automatically. Press `Ctrl+C` to stop the frontend; the Docker
+services and named database volume remain available for the next start.
+
+The usual URLs are `http://127.0.0.1:5173/` and
+`http://127.0.0.1:3000/graphiql`.
+
+## Run services separately
+
+Use these commands when debugging one part of the local stack.
+
+### Frontend
 
 ```bash
 npm run dev
@@ -32,7 +53,7 @@ The frontend loads selectable neighborhood, South Park, and Sofia Zoo polygons.
 It also queries the backend for playground pins inside the visible map bounds,
 so run the backend and import once to see pins.
 
-## Run the backend
+### Backend
 
 From repository root:
 
@@ -137,7 +158,8 @@ the data.
 
 ## Stop the dev server
 
-Press `Ctrl+C` in the terminal running Vite.
+Press `Ctrl+C` in the terminal running `npm run start:local` or Vite.
+The one-command startup keeps the Docker services running for reuse.
 
 Stop backend containers while preserving imported data:
 
