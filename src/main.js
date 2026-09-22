@@ -103,6 +103,7 @@ let detailRequest;
 let previewPopup;
 let previewMarker;
 let suppressHover;
+let detailsReturnFocus;
 
 function showAreaName(name) {
   areaName.textContent = name ?? selectedLayer?.feature.properties.name ?? DEFAULT_LABEL;
@@ -140,12 +141,17 @@ function closePreview() {
 function closeDetails() {
   detailRequest?.abort();
   detailRequest = undefined;
+  const focusTarget = detailsReturnFocus;
+  const refreshedFocusTarget = selectedPlaygroundMarker?.getElement();
+  detailsReturnFocus = undefined;
   selectedPlaygroundMarker = undefined;
   selectedPlayground = undefined;
   for (const marker of playgrounds.getLayers()) updateMarkerStyle(marker);
   details.hidden = true;
   detailsContent.replaceChildren();
   updateBackButton();
+  if (focusTarget?.isConnected) focusTarget.focus();
+  else if (refreshedFocusTarget?.isConnected) refreshedFocusTarget.focus();
 }
 
 function goBack() {
@@ -178,28 +184,47 @@ function selectArea(feature, layer) {
 }
 
 function onEachArea(feature, layer) {
+  let focused = false;
+  let hovered = false;
+  const preview = () => {
+    if (selectedLayer !== layer) layer.setStyle(HOVER_STYLE);
+    showAreaName(feature.properties.name);
+  };
+  const endPreview = () => {
+    if (hovered || focused) return;
+    if (selectedLayer !== layer) areas.resetStyle(layer);
+    showAreaName();
+  };
+
   layer.on({
     add() {
       const element = layer.getElement();
       element?.setAttribute("tabindex", "0");
       element?.setAttribute("role", "button");
       element?.setAttribute("aria-label", `Select ${feature.properties.name}`);
+      element?.addEventListener("focus", () => {
+        focused = true;
+        preview();
+      });
+      element?.addEventListener("blur", () => {
+        focused = false;
+        endPreview();
+      });
     },
     mouseover() {
+      hovered = true;
       if (suppressHover) return;
-      if (selectedLayer !== layer) layer.setStyle(HOVER_STYLE);
-      showAreaName(feature.properties.name);
+      preview();
     },
     mousemove({ originalEvent }) {
       if (!suppressHover || (!originalEvent.movementX && !originalEvent.movementY)) return;
       suppressHover = false;
-      if (selectedLayer !== layer) layer.setStyle(HOVER_STYLE);
-      showAreaName(feature.properties.name);
+      preview();
     },
     mouseout() {
+      hovered = false;
       if (suppressHover) return;
-      if (selectedLayer !== layer) areas.resetStyle(layer);
-      showAreaName();
+      endPreview();
     },
     click() {
       selectArea(feature, layer);
@@ -384,9 +409,11 @@ async function openDetails(summary, marker) {
   }
   selectedPlayground = summary;
   selectedPlaygroundMarker = marker;
+  detailsReturnFocus = marker.getElement();
   updateMarkerStyle(marker);
   updateBackButton();
   details.hidden = false;
+  detailsClose.focus();
   detailsTitle.textContent = summary.name ?? "Playground details";
   detailsContent.replaceChildren();
   const loading = document.createElement("p");
@@ -484,7 +511,9 @@ async function loadPlaygrounds() {
     }
     if (playgroundRequest === request) renderPlaygrounds(items);
   } catch (error) {
-    if (error.name !== "AbortError") console.error("Playgrounds unavailable", error);
+    if (error.name === "AbortError") return;
+    if (playgroundRequest === request) playgrounds.clearLayers();
+    console.error("Playgrounds unavailable", error);
   }
 }
 
