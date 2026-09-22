@@ -391,7 +391,7 @@ pub fn match_sources(osm: &[SourcePlayground], sofia: &[SourcePlayground]) -> Ma
                 osm_point,
                 Point::new(sofia_record.longitude, sofia_record.latitude),
             );
-            if distance_meters <= MATCH_RADIUS_METERS {
+            if within_match_radius(distance_meters) {
                 osm_counts[osm_index] += 1;
                 sofia_counts[sofia_index] += 1;
                 candidates.push((osm_index, sofia_index, distance_meters));
@@ -422,6 +422,10 @@ pub fn match_sources(osm: &[SourcePlayground], sofia: &[SourcePlayground]) -> Ma
             .then_with(|| left.sofia_id.cmp(&right.sofia_id))
     });
     result
+}
+
+fn within_match_radius(distance_meters: f64) -> bool {
+    distance_meters <= MATCH_RADIUS_METERS
 }
 
 pub fn merge_catalog(
@@ -545,7 +549,7 @@ fn canonical_playground(
 
     CanonicalPlayground {
         id,
-        name: primary.name.clone(),
+        name: selected_name(sources).map(|(_, name)| name.to_owned()),
         longitude: primary.longitude,
         latitude: primary.latitude,
         capabilities,
@@ -564,7 +568,9 @@ fn canonical_playground(
         notes: selected_string("notes", sources),
         primary_source: primary.source,
         source_url: source_url(primary),
-        source_updated_at: primary.source_date,
+        source_updated_at: (primary.date_meaning != Some(DateMeaning::Observation))
+            .then_some(primary.source_date)
+            .flatten(),
         source_values: source_values(sources),
     }
 }
@@ -572,6 +578,19 @@ fn canonical_playground(
 fn source_values(sources: &[&SourcePlayground]) -> Vec<SourceValue> {
     let mut values = Vec::new();
     for source in sources {
+        if let Some(name) = &source.name {
+            values.push(SourceValue {
+                field: "name".into(),
+                value: Value::String(name.clone()),
+                source: source.source,
+                source_id: source.external_id.clone(),
+                date: source.source_date,
+                date_meaning: source.date_meaning,
+                selected: selected_name(sources).is_some_and(|(selected, _)| {
+                    selected.source == source.source && selected.external_id == source.external_id
+                }),
+            });
+        }
         for (field, value) in &source.values {
             values.push(SourceValue {
                 field: field.clone(),
@@ -586,19 +605,19 @@ fn source_values(sources: &[&SourcePlayground]) -> Vec<SourceValue> {
             });
         }
         for (name, count) in &source.equipment {
-            let Some(count) = count else {
-                continue;
-            };
             values.push(SourceValue {
                 field: format!("equipment.{name}"),
-                value: Value::from(*count),
+                value: count.map_or(Value::Null, Value::from),
                 source: source.source,
                 source_id: source.external_id.clone(),
                 date: source.source_date,
                 date_meaning: source.date_meaning,
-                selected: selected_equipment(name, sources).is_some_and(|(selected, _)| {
-                    selected.source == source.source && selected.external_id == source.external_id
-                }),
+                selected: selected_equipment(name, sources)
+                    .map(|(selected, _)| selected)
+                    .or_else(|| selected_equipment_presence(name, sources))
+                    .is_some_and(|selected| {
+                        selected.source == source.source && selected.external_id == source.external_id
+                    }),
             });
         }
     }
@@ -609,6 +628,13 @@ fn source_values(sources: &[&SourcePlayground]) -> Vec<SourceValue> {
             .then_with(|| left.source_id.cmp(&right.source_id))
     });
     values
+}
+
+fn selected_name<'a>(sources: &[&'a SourcePlayground]) -> Option<(&'a SourcePlayground, &'a str)> {
+    sources
+        .iter()
+        .filter_map(|source| source.name.as_deref().map(|name| (*source, name)))
+        .max_by(|left, right| compare_candidates("name", left.0, right.0))
 }
 
 fn selected_value<'a>(
@@ -629,6 +655,17 @@ fn selected_equipment<'a>(
         .iter()
         .filter_map(|source| source.equipment.get(name).and_then(|count| count.as_ref()).map(|count| (*source, count)))
         .max_by(|left, right| compare_candidates("equipment", left.0, right.0))
+}
+
+fn selected_equipment_presence<'a>(
+    name: &str,
+    sources: &[&'a SourcePlayground],
+) -> Option<&'a SourcePlayground> {
+    sources
+        .iter()
+        .filter(|source| source.equipment.contains_key(name))
+        .copied()
+        .max_by(|left, right| compare_candidates("equipment", left, right))
 }
 
 fn compare_candidates(field: &str, left: &SourcePlayground, right: &SourcePlayground) -> std::cmp::Ordering {
@@ -849,18 +886,8 @@ mod tests {
 
     #[test]
     fn matching_includes_the_15_meter_boundary() {
-        let osm = vec![source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70)];
-        let sofia = vec![source(
-            SourceKind::SofiaPlan,
-            "06.129",
-            23.32,
-            42.70 + latitude_offset(15.0),
-        )];
-
-        let result = match_sources(&osm, &sofia);
-
-        assert_eq!(result.clear_pairs.len(), 1);
-        assert!((result.clear_pairs[0].distance_meters - 15.0).abs() < 0.05);
+        assert!(within_match_radius(MATCH_RADIUS_METERS));
+        assert!(!within_match_radius(f64::from_bits(MATCH_RADIUS_METERS.to_bits() + 1)));
     }
 
     #[test]
@@ -959,11 +986,13 @@ mod tests {
     fn merging_uses_source_fallbacks_and_keeps_stable_ids_and_exclusions() {
         let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
         osm.name = Some("OSM name".into());
+        osm.source_date = Some(DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z").unwrap().into());
         osm.values.insert("address".into(), json!("OSM address"));
         osm.values.insert("surface".into(), json!("rubber"));
         osm.values.insert("min_age".into(), json!(1));
 
         let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
+        sofia.source_date = Some(DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z").unwrap().into());
         sofia.values.insert("address".into(), json!("Sofia address"));
         sofia.values.insert("surface".into(), json!("sand"));
         sofia.values.insert("min_age".into(), json!(3));
@@ -989,5 +1018,73 @@ mod tests {
             vec!["node/1", "node/2", "sofiaplan/06.130"]
         );
         assert!(merged.source_links.iter().all(|link| link.external_id != "06.131"));
+    }
+
+    #[test]
+    fn merging_selects_newest_name_and_retains_name_provenance() {
+        let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
+        osm.name = Some("Older OSM name".into());
+        osm.source_date = Some(DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z").unwrap().into());
+
+        let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
+        sofia.name = Some("Newer SofiaPlan name".into());
+        sofia.source_date = Some(DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z").unwrap().into());
+
+        let matches = match_sources(&[osm.clone()], &[sofia.clone()]);
+        let merged = merge_catalog(&[osm], &[sofia], &matches);
+        let playground = &merged.playgrounds[0];
+
+        assert_eq!(playground.name.as_deref(), Some("Newer SofiaPlan name"));
+        assert_eq!(
+            playground
+                .source_values
+                .iter()
+                .filter(|value| value.field == "name")
+                .map(|value| (value.source_id.as_str(), value.selected))
+                .collect::<Vec<_>>(),
+            vec![("node/1", false), ("06.129", true)]
+        );
+    }
+
+    #[test]
+    fn merging_keeps_observations_out_of_source_updated_at() {
+        let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
+        sofia.source_date = Some(DateTime::parse_from_rfc3339("2019-04-18T00:00:00Z").unwrap().into());
+        sofia.date_meaning = Some(DateMeaning::Observation);
+        sofia.values.insert("notes".into(), json!("Observed municipal note"));
+        let observed_at = sofia.source_date;
+
+        let merged = merge_catalog(&[], &[sofia], &MatchResult::default());
+        let playground = &merged.playgrounds[0];
+
+        assert_eq!(playground.source_updated_at, None);
+        assert_eq!(
+            playground
+                .source_values
+                .iter()
+                .find(|value| value.field == "notes")
+                .map(|value| (value.date, value.date_meaning)),
+            Some((observed_at, Some(DateMeaning::Observation)))
+        );
+    }
+
+    #[test]
+    fn merging_retains_unknown_equipment_count_provenance() {
+        let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
+        osm.equipment.insert("slide".into(), None);
+
+        let merged = merge_catalog(&[osm], &[], &MatchResult::default());
+        let playground = &merged.playgrounds[0];
+
+        assert_eq!(playground.capabilities, vec!["slide"]);
+        assert!(playground.equipment_counts.is_empty());
+        assert_eq!(
+            playground
+                .source_values
+                .iter()
+                .find(|value| value.field == "equipment.slide")
+                .map(|value| (&value.value, value.selected)),
+            Some((&Value::Null, true))
+        );
     }
 }
