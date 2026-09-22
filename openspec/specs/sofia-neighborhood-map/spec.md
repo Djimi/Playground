@@ -131,12 +131,22 @@ The system SHALL display every playground in the Sofia catalog as an interactive
 - **AND** the map does not present partial or stale playground results
 
 ### Requirement: Preview playgrounds from the map
-The system SHALL let a visitor preview a playground without first selecting or zooming into its neighborhood, SHALL visibly distinguish the previewed playground pin, and SHALL allow pointer activation of the previewed pin to open and keep its details visible.
+The system SHALL let a visitor preview a playground without first selecting or zooming into its neighborhood, SHALL visibly distinguish the previewed playground pin, SHALL return that pin to its default appearance when the preview ends, and SHALL allow pointer activation of the previewed pin to open and keep its details visible.
 
 #### Scenario: Pointer visitor previews a playground
 - **WHEN** a visitor points at a playground pin on a hover-capable device
 - **THEN** the system displays a compact preview with the recorded main photo when available, name or unnamed fallback, recommended age when available, equipment summary, and platform rating state
 - **AND** the pin receives preview styling
+
+#### Scenario: Pointer visitor leaves a playground preview
+- **WHEN** a pointer visitor stops pointing at a playground pin with a visible compact preview
+- **THEN** the compact preview closes
+- **AND** the pin returns to its default neutral styling
+
+#### Scenario: Keyboard visitor leaves a playground preview
+- **WHEN** keyboard focus moves away from a playground pin with a visible compact preview
+- **THEN** the compact preview closes
+- **AND** the pin returns to its default neutral styling
 
 #### Scenario: Pointer visitor opens details after preview
 - **WHEN** a pointer visitor activates a playground pin while its compact preview is visible

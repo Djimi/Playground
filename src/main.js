@@ -126,10 +126,9 @@ function closePreview() {
     map.closePopup(previewPopup);
     previewPopup = undefined;
   }
-  if (previewMarker) {
-    updateMarkerStyle(previewMarker);
-    previewMarker = undefined;
-  }
+  const marker = previewMarker;
+  previewMarker = undefined;
+  if (marker) updateMarkerStyle(marker);
 }
 
 function closeDetails({ restoreFocus = true } = {}) {
