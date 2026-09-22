@@ -33,7 +33,7 @@ The existing `No ratings yet` and `No reviews yet` states remain visible until v
 
 ### OpenStreetMap
 
-The existing Overpass importer remains the source for playground identity, geometry, names, equipment, age tags, access tags, source timestamps, and direct Wikimedia Commons references.
+The existing Overpass importer remains the source for playground identity, geometry, names, equipment, age tags, surface and access tags, source timestamps, and direct Wikimedia Commons references.
 
 - Data licence: ODbL 1.0.
 - Required attribution: `© OpenStreetMap contributors` with a link to the OpenStreetMap copyright page.
@@ -41,12 +41,12 @@ The existing Overpass importer remains the source for playground identity, geome
 
 ### SofiaPlan
 
-The importer downloads the current playground export from the official SofiaPlan API. SofiaPlan supplies municipal address text, ownership, age groups, equipment flags, fencing, surface, condition, repairs, notes, and record dates when present.
+The importer downloads the current playground export from the official SofiaPlan API. SofiaPlan supplies municipal address text, ownership, age groups, equipment counts, fencing, Ordinance 1 compliance, historical repair/status labels, and notes. The export has no surface or current-condition field, so the application does not infer either value from SofiaPlan.
 
 - Dataset page: <https://urbandata.sofia.bg/dataset/playgrounds>
 - API export: <https://api.sofiaplan.bg/datasets/5>
-- The known records are mostly from 2019–2021. Condition data is historical, not current safety advice.
-- The UI must identify SofiaPlan and show the source date beside historical condition data.
+- The dataset catalog records one source-wide observation date: 18 April 2019. Individual records have no observation timestamp.
+- The UI must identify SofiaPlan and show that date beside municipal status, repair, compliance, and note data.
 - Before a public commercial launch, obtain written clarification of reuse terms because the dataset metadata and SofiaPlan reuse policy are not fully aligned.
 
 ### Wikimedia Commons
@@ -104,7 +104,7 @@ The existing `playgrounds` catalog remains the query model. It keeps typed value
 - fencing;
 - ownership;
 - access and fee information;
-- historical condition;
+- historical municipal status, repair information, Ordinance 1 compliance, and notes;
 - structured licensed photos.
 
 Each merged playground stores structured source values per field. Every source value contains the value, source record, applicable date, date meaning, and whether it won the merge. This preserves both sources without adding a general audit system.
@@ -136,8 +136,8 @@ Missing values never replace known values. Explicit values such as `false`, `0`,
 
 Fallbacks when dates cannot decide:
 
-- OpenStreetMap: identity, name, representative location, mapped equipment, access, fee, and Commons reference.
-- SofiaPlan: municipal address, ownership, age group, surface, fencing, historical condition, repairs, and notes.
+- OpenStreetMap: identity, name, representative location, mapped equipment, surface, access, fee, and Commons reference.
+- SofiaPlan: municipal address, ownership, age group, equipment counts, fencing, historical municipal status, repairs, Ordinance 1 compliance, and notes.
 
 The UI labels dates accurately as observations or source-record updates. It never presents an import time as a verification date.
 
@@ -180,7 +180,7 @@ The [approved popup and details mockup](assets/playground-popup-details-mockup.h
 - Distance only when the application already has the visitor's location; this change does not add a location-permission flow.
 - Age range.
 - Main equipment and known counts.
-- Historical condition with source date and `May be outdated` warning.
+- Historical municipal status with source date and `May be outdated` warning.
 - Existing `No ratings yet` state.
 - `View details` action.
 
@@ -190,7 +190,7 @@ The [approved popup and details mockup](assets/playground-popup-details-mockup.h
 - Address, coordinates, and directions link.
 - Full equipment inventory and known counts.
 - Age range, surface, fencing, ownership, access, and fee.
-- Historical condition with source, date, and explicit warning.
+- Historical municipal status, repairs, compliance, and notes with source, date, and explicit warning.
 - Source values and dates, including an older conflicting value when present.
 - Existing `No ratings yet` and `No reviews yet` states.
 - OpenStreetMap, SofiaPlan, and photo attribution as applicable.
