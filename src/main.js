@@ -100,6 +100,7 @@ let playgroundRequest;
 let detailRequest;
 let previewPopup;
 let previewMarker;
+let detailsReturnFocus;
 
 function showAreaName(name) {
   areaName.textContent = name ?? DEFAULT_LABEL;
@@ -133,12 +134,17 @@ function closePreview() {
 function closeDetails() {
   detailRequest?.abort();
   detailRequest = undefined;
+  const focusTarget = detailsReturnFocus;
+  const refreshedFocusTarget = selectedPlaygroundMarker?.getElement();
+  detailsReturnFocus = undefined;
   selectedPlaygroundMarker = undefined;
   selectedPlayground = undefined;
   for (const marker of playgrounds.getLayers()) updateMarkerStyle(marker);
   details.hidden = true;
   detailsContent.replaceChildren();
   updateBackButton();
+  if (focusTarget?.isConnected) focusTarget.focus();
+  else if (refreshedFocusTarget?.isConnected) refreshedFocusTarget.focus();
 }
 
 function goBack() {
@@ -373,9 +379,11 @@ async function openDetails(summary, marker) {
   }
   selectedPlayground = summary;
   selectedPlaygroundMarker = marker;
+  detailsReturnFocus = marker.getElement();
   updateMarkerStyle(marker);
   updateBackButton();
   details.hidden = false;
+  detailsClose.focus();
   detailsTitle.textContent = summary.name ?? "Playground details";
   detailsContent.replaceChildren();
   const loading = document.createElement("p");
@@ -476,7 +484,9 @@ async function loadPlaygrounds() {
     }
     if (playgroundRequest === request) renderPlaygrounds(items);
   } catch (error) {
-    if (error.name !== "AbortError") console.error("Playgrounds unavailable", error);
+    if (error.name === "AbortError") return;
+    if (playgroundRequest === request) playgrounds.clearLayers();
+    console.error("Playgrounds unavailable", error);
   }
 }
 

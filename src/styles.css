@@ -210,15 +210,20 @@ h1 {
   .map-header {
     top: 0.5rem;
     width: calc(100% - 1rem);
-    padding: 0.7rem 3.25rem;
+    padding: 0.7rem 4.5rem 0.7rem 3.25rem;
   }
 
   .eyebrow {
     font-size: 0.62rem;
   }
 
+  .leaflet-top.leaflet-left {
+    top: auto;
+    bottom: 4rem;
+  }
+
   .leaflet-control-zoom {
-    margin-top: 0.5rem !important;
+    margin-top: 0 !important;
   }
 
   .leaflet-control-attribution {
