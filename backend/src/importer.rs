@@ -7,9 +7,11 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use geo::{Contains, InteriorPoint, Intersects, LineString, MultiPolygon, Point, Polygon};
-use serde::Deserialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use sqlx::PgPool;
+
+use crate::enrichment::{DateMeaning, SourceKind, SourcePlayground};
 
 pub const DEFAULT_OVERPASS_URL: &str = "https://overpass-api.de/api/interpreter";
 pub const DEFAULT_NEIGHBORHOODS_PATH: &str = "../public/data/sofia-neighborhoods.geojson";
@@ -67,29 +69,36 @@ struct OverpassResponse {
     elements: Vec<Element>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct Element {
     #[serde(rename = "type")]
     kind: String,
     id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     lat: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     lon: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     center: Option<RawPoint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     bounds: Option<Bounds>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     geometry: Option<Vec<RawPoint>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     members: Option<Vec<Member>>,
     #[serde(default)]
     tags: serde_json::Map<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     timestamp: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 struct RawPoint {
     lat: f64,
     lon: f64,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 struct Bounds {
     minlat: f64,
     minlon: f64,
@@ -106,18 +115,21 @@ impl Bounds {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct Member {
     #[serde(rename = "type")]
     kind: String,
     #[serde(default)]
     role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     geometry: Option<Vec<RawPoint>>,
 }
 
 struct Root {
-    playground: Playground,
+    playground: SourcePlayground,
     area: Option<MultiPolygon<f64>>,
+    raw_root: Value,
+    raw_equipment: Vec<Value>,
 }
 
 pub async fn run_import(
@@ -134,7 +146,10 @@ pub async fn apply_import(
     overpass_body: &str,
     neighborhoods_path: &Path,
 ) -> Result<ImportCounts> {
-    let playgrounds = normalize_overpass(overpass_body)?;
+    let playgrounds = normalize_overpass(overpass_body)?
+        .iter()
+        .map(legacy_playground)
+        .collect::<Vec<_>>();
     let neighborhoods = load_neighborhoods(neighborhoods_path)?;
     replace_snapshot(pool, &neighborhoods, &playgrounds).await
 }
@@ -154,7 +169,7 @@ pub async fn fetch_overpass(url: &str) -> Result<String> {
     response.text().await.context("read Overpass response")
 }
 
-pub fn normalize_overpass(body: &str) -> Result<Vec<Playground>> {
+pub fn normalize_overpass(body: &str) -> Result<Vec<SourcePlayground>> {
     let value: Value = serde_json::from_str(body).context("Overpass response is not valid JSON")?;
     let object = value
         .as_object()
@@ -175,7 +190,11 @@ pub fn normalize_overpass(body: &str) -> Result<Vec<Playground>> {
         if leisure == Some("playground") {
             roots.push(normalize_root(element)?);
         } else if let Some(capability) = equipment_kind {
-            equipment.push((element_point(element)?, capability));
+            equipment.push((
+                element_point(element)?,
+                capability,
+                serde_json::to_value(element).context("serialize OpenStreetMap equipment")?,
+            ));
         }
     }
 
@@ -183,35 +202,38 @@ pub fn normalize_overpass(body: &str) -> Result<Vec<Playground>> {
         bail!("Overpass response contains no Sofia playgrounds");
     }
 
-    for (point, capability) in equipment {
+    for (point, capability, raw_equipment) in equipment {
         for root in &mut roots {
             if root
                 .area
                 .as_ref()
                 .is_some_and(|area| area.intersects(&point))
             {
-                root.playground.capabilities.push(capability.to_owned());
-                *root
+                let count = root
                     .playground
-                    .equipment_counts
+                    .equipment
                     .entry(capability.to_owned())
-                    .or_default() += 1;
+                    .or_insert(None);
+                *count = Some(count.unwrap_or(0) + 1);
+                root.raw_equipment.push(raw_equipment.clone());
             }
         }
     }
 
     let mut playgrounds = Vec::with_capacity(roots.len());
     for mut root in roots {
-        root.playground.capabilities.sort();
-        root.playground.capabilities.dedup();
+        root.playground.raw_data = json!({
+            "root": root.raw_root,
+            "equipment": root.raw_equipment,
+        });
         playgrounds.push(root.playground);
     }
-    playgrounds.sort_by(|left, right| left.id.cmp(&right.id));
+    playgrounds.sort_by(|left, right| left.external_id.cmp(&right.external_id));
 
     let mut ids = BTreeSet::new();
     if playgrounds
         .iter()
-        .any(|playground| !ids.insert(&playground.id))
+        .any(|playground| !ids.insert(&playground.external_id))
     {
         bail!("Overpass response contains duplicate playground identifiers");
     }
@@ -365,17 +387,18 @@ fn normalize_root(element: &Element) -> Result<Root> {
     };
     validate_point(point)?;
 
-    let mut capabilities = CAPABILITIES
+    let external_id = format!("{}/{}", element.kind, element.id);
+    let mut equipment = CAPABILITIES
         .iter()
         .filter(|capability| {
             tag(element, &format!("playground:{capability}")).is_some_and(is_truthy)
                 || (**capability == "climbing_frame"
                     && tag(element, "playground:climbingframe").is_some_and(is_truthy))
         })
-        .map(|capability| (*capability).to_owned())
-        .collect::<Vec<_>>();
+        .map(|capability| ((*capability).to_owned(), None))
+        .collect::<BTreeMap<_, _>>();
     if let Some(capability) = tag(element, "playground").and_then(normalize_capability) {
-        capabilities.push(capability.to_owned());
+        equipment.insert(capability.to_owned(), None);
     }
 
     let mut min_age = tag(element, "min_age").and_then(parse_age);
@@ -384,49 +407,88 @@ fn normalize_root(element: &Element) -> Result<Root> {
         min_age = None;
         max_age = None;
     }
+    let mut values = BTreeMap::new();
+    for field in ["surface", "access", "fee"] {
+        if let Some(value) = tag(element, field).map(str::trim).filter(|value| !value.is_empty()) {
+            values.insert(field.to_owned(), Value::String(value.to_owned()));
+        }
+    }
+    if let Some(min_age) = min_age {
+        values.insert("min_age".into(), Value::from(min_age));
+    } else if let Some(value) = tag(element, "min_age") {
+        warn_invalid_osm_value(&external_id, "min_age", value);
+    }
+    if let Some(max_age) = max_age {
+        values.insert("max_age".into(), Value::from(max_age));
+    } else if let Some(value) = tag(element, "max_age") {
+        warn_invalid_osm_value(&external_id, "max_age", value);
+    }
 
-    let photo_urls = tag(element, "image")
-        .into_iter()
-        .flat_map(|images| images.split(';'))
-        .map(str::trim)
-        .filter(|url| {
-            reqwest::Url::parse(url).is_ok_and(|parsed| {
-                matches!(parsed.scheme(), "http" | "https") && parsed.host().is_some()
-            })
-        })
-        .map(str::to_owned)
-        .collect();
     let timestamp = element
         .timestamp
         .as_deref()
         .or_else(|| tag(element, "timestamp"));
+    let source_date = timestamp.and_then(|value| {
+        DateTime::parse_from_rfc3339(value)
+            .ok()
+            .map(|parsed| parsed.with_timezone(&Utc))
+    });
+    if source_date.is_none() {
+        if let Some(timestamp) = timestamp {
+            warn_invalid_osm_value(&external_id, "source_date", timestamp);
+        }
+    }
 
     Ok(Root {
-        playground: Playground {
-            id: format!("{}/{}", element.kind, element.id),
+        playground: SourcePlayground {
+            source: SourceKind::OpenStreetMap,
+            external_id,
+            raw_data: Value::Null,
             name: tag(element, "name")
                 .map(str::trim)
                 .filter(|name| !name.is_empty())
                 .map(str::to_owned),
             longitude: point.x(),
             latitude: point.y(),
-            capabilities,
-            equipment_counts: BTreeMap::new(),
-            min_age,
-            max_age,
-            photo_urls,
-            source_url: format!(
-                "https://www.openstreetmap.org/{}/{}",
-                element.kind, element.id
-            ),
-            source_updated_at: timestamp.and_then(|value| {
-                DateTime::parse_from_rfc3339(value)
-                    .ok()
-                    .map(|parsed| parsed.with_timezone(&Utc))
-            }),
+            source_date,
+            date_meaning: source_date.map(|_| DateMeaning::SourceUpdate),
+            values,
+            equipment,
+            commons_titles: tag(element, "wikimedia_commons")
+                .map(str::trim)
+                .filter(|title| title.starts_with("File:"))
+                .map(|title| vec![title.to_owned()])
+                .unwrap_or_default(),
+            excluded_from_catalog: false,
         },
         area,
+        raw_root: serde_json::to_value(element).context("serialize OpenStreetMap playground")?,
+        raw_equipment: Vec::new(),
     })
+}
+
+fn legacy_playground(source: &SourcePlayground) -> Playground {
+    Playground {
+        id: source.external_id.clone(),
+        name: source.name.clone(),
+        longitude: source.longitude,
+        latitude: source.latitude,
+        capabilities: source.equipment.keys().cloned().collect(),
+        equipment_counts: source
+            .equipment
+            .iter()
+            .filter_map(|(name, count)| count.map(|count| (name.clone(), count)))
+            .collect(),
+        min_age: source.values.get("min_age").and_then(Value::as_i64).map(|age| age as i16),
+        max_age: source.values.get("max_age").and_then(Value::as_i64).map(|age| age as i16),
+        photo_urls: Vec::new(),
+        source_url: format!("https://www.openstreetmap.org/{}", source.external_id),
+        source_updated_at: source.source_date,
+    }
+}
+
+fn warn_invalid_osm_value(external_id: &str, field: &str, value: &str) {
+    tracing::warn!(source = "openstreetmap", external_id, field, rejected_value = value, "reject invalid OpenStreetMap value");
 }
 
 fn tag<'a>(element: &'a Element, name: &str) -> Option<&'a str> {
@@ -672,7 +734,7 @@ mod tests {
                 {"type":"way","id":20,"timestamp":"2026-09-20T12:00:00Z",
                  "center":{"lat":42.5,"lon":23.5},
                  "geometry":[{"lat":42.0,"lon":23.0},{"lat":42.0,"lon":24.0},{"lat":43.0,"lon":24.0},{"lat":43.0,"lon":23.0},{"lat":42.0,"lon":23.0}],
-                 "tags":{"leisure":"playground","name":" Test ","playground:swing":"yes","playground:slide":"no","min_age":"-1","max_age":"12","image":"ftp://bad; https://example.test/photo.jpg"}},
+                 "tags":{"leisure":"playground","name":" Test ","playground:swing":"yes","playground:slide":"no","min_age":"-1","max_age":"12","image":"https://example.test/photo.jpg","wikimedia_commons":"File:Playground.jpg","surface":"rubber","access":"yes","fee":"no"}},
                 {"type":"node","id":21,"lat":42.25,"lon":23.25,"tags":{"playground":"slide"}},
                 {"type":"node","id":22,"lat":42.5,"lon":23.75,"tags":{"playground":"slide"}},
                 {"type":"node","id":23,"lat":41.0,"lon":23.25,"tags":{"playground":"seesaw"}}
@@ -683,18 +745,28 @@ mod tests {
 
         assert_eq!(playgrounds.len(), 1);
         let playground = &playgrounds[0];
-        assert_eq!(playground.id, "way/20");
+        assert_eq!(playground.source, crate::enrichment::SourceKind::OpenStreetMap);
+        assert_eq!(playground.external_id, "way/20");
         assert_eq!(playground.name.as_deref(), Some("Test"));
-        assert_eq!(playground.capabilities, ["slide", "swing"]);
         assert_eq!(
-            playground.equipment_counts,
-            BTreeMap::from([(String::from("slide"), 2)])
+            playground.equipment,
+            BTreeMap::from([
+                (String::from("slide"), Some(2)),
+                (String::from("swing"), None),
+            ])
         );
-        assert_eq!(playground.min_age, None);
-        assert_eq!(playground.max_age, Some(12));
-        assert_eq!(playground.photo_urls, ["https://example.test/photo.jpg"]);
+        assert_eq!(playground.values["max_age"], 12);
+        assert_eq!(playground.values["surface"], "rubber");
+        assert_eq!(playground.values["access"], "yes");
+        assert_eq!(playground.values["fee"], "no");
+        assert_eq!(playground.commons_titles, ["File:Playground.jpg"]);
+        assert_eq!(playground.raw_data["root"]["id"], 20);
+        assert_eq!(playground.raw_data["equipment"].as_array().unwrap().len(), 2);
         assert_eq!((playground.longitude, playground.latitude), (23.5, 42.5));
-        assert!(playground.source_updated_at.is_some());
+        assert_eq!(
+            playground.date_meaning,
+            Some(crate::enrichment::DateMeaning::SourceUpdate)
+        );
     }
 
     #[test]
@@ -734,13 +806,13 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(playgrounds[0].id, "node/7");
+        assert_eq!(playgrounds[0].external_id, "node/7");
         assert_eq!(
             (playgrounds[0].longitude, playgrounds[0].latitude),
             (23.3, 42.7)
         );
-        assert_eq!(playgrounds[1].id, "relation/8");
-        assert_eq!(playgrounds[1].capabilities, ["climbing_frame"]);
+        assert_eq!(playgrounds[1].external_id, "relation/8");
+        assert_eq!(playgrounds[1].equipment["climbing_frame"], None);
     }
 
     #[test]
@@ -761,10 +833,10 @@ mod tests {
             (playgrounds[0].longitude, playgrounds[0].latitude),
             (23.2, 42.1)
         );
-        assert_eq!(playgrounds[0].capabilities, ["swing"]);
+        assert_eq!(playgrounds[0].equipment["swing"], Some(1));
         assert_eq!(
-            playgrounds[0].equipment_counts,
-            BTreeMap::from([(String::from("swing"), 1)])
+            playgrounds[0].raw_data["equipment"].as_array().unwrap().len(),
+            1
         );
     }
 
