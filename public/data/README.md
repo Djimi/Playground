@@ -11,6 +11,8 @@ Source: [OpenStreetMap](https://www.openstreetmap.org/) neighborhood boundary re
 
 The bundled GeoJSON is a normalized derivative database. It remains available under ODbL 1.0. Normalization keeps polygon relations tagged as Sofia suburbs, quarters, or neighborhoods; assigns stable relation IDs; and stores curated Latin-script display names. `EXCLUDED_NAMES` in the preparation script explicitly removes outlying settlements that fall outside the Sofia-town neighborhood scope.
 
+`Raina Knyaginya` is a curated polygon because OpenStreetMap currently maps it as [node 13848488763](https://www.openstreetmap.org/node/13848488763), not a boundary relation. Its four anchors follow the published scope between Nadezhda overpass, the Central Station railway area, Kamenodelska Street, and Istoriya Slavyanobulgarska Boulevard. The script preserves this source attribution with the feature.
+
 ## Discovery-area boundaries
 
 `sofia-discovery-areas.geojson` contains the complete South Park boundary from

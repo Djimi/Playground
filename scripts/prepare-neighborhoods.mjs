@@ -9,14 +9,40 @@ const DISCOVERY_AREAS = [
   { osmId: "R16878152", id: "osm-relation-16878152", name: "South Park", areaType: "park" },
   { osmId: "W157686292", id: "osm-way-157686292", name: "Sofia Zoo", areaType: "zoo" },
 ];
-const REQUIRED_NAMES = new Map([
+const CURATED_NAMES = new Map([
   [16863633, "Lozenets"],
   [16864393, "Mladost 1"],
   [16864735, "Mladost 1A"],
   [16889162, "Mladost 2"],
   [16889163, "Mladost 3"],
   [16889164, "Mladost 4"],
+  [14584756, "Lyulin Center"],
 ]);
+const CANONICAL_RELATION_IDS = new Map([["Hadzhi Dimitar", 16890973]]);
+const EXCLUDED_RELATION_IDS = new Set([16871937]);
+const CURATED_FEATURES = [
+  {
+    type: "Feature",
+    id: "node/13848488763",
+    properties: {
+      id: "osm-node-13848488763",
+      name: "Raina Knyaginya",
+      source: "OpenStreetMap node 13848488763; scope published by Fakti, 2026-05-06",
+    },
+    // Boundary anchors: Nadezhda overpass, the central-station railway area,
+    // Kamenodelska Street, and Istoriya Slavyanobulgarska Boulevard.
+    geometry: {
+      type: "Polygon",
+      coordinates: [[
+        [23.3105285, 42.7207376],
+        [23.3410659, 42.7151777],
+        [23.3343005, 42.7103387],
+        [23.3124026, 42.7147188],
+        [23.3105285, 42.7207376],
+      ]],
+    },
+  },
+];
 const EXCLUDED_NAMES = new Set([
   "Benkovski",
   "Chelopechene",
@@ -100,8 +126,12 @@ for (let offset = 0; offset < relationIds.length; offset += 25) {
       !["Polygon", "MultiPolygon"].includes(feature.geometry?.type)
     ) continue;
 
-    const name = REQUIRED_NAMES.get(relationId) || tags["name:en"] || transliterate(tags.name);
-    if (EXCLUDED_NAMES.has(name)) continue;
+    const name = CURATED_NAMES.get(relationId) || tags["name:en"] || transliterate(tags.name);
+    if (
+      EXCLUDED_NAMES.has(name) ||
+      EXCLUDED_RELATION_IDS.has(relationId) ||
+      (CANONICAL_RELATION_IDS.has(name) && CANONICAL_RELATION_IDS.get(name) !== relationId)
+    ) continue;
 
     features.push({
       type: "Feature",
@@ -116,6 +146,8 @@ for (let offset = 0; offset < relationIds.length; offset += 25) {
 
   if (offset + 25 < relationIds.length) await new Promise((resolve) => setTimeout(resolve, 1100));
 }
+
+features.push(...CURATED_FEATURES);
 
 const groupedFeatures = Object.values(Object.groupBy(features, (feature) => feature.properties.name))
   .map((matchingFeatures) => {

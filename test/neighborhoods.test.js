@@ -10,8 +10,24 @@ const requiredNames = [
   "Mladost 2",
   "Mladost 3",
   "Mladost 4",
+  "Raina Knyaginya",
+  "Lyulin 1",
+  "Lyulin 2",
+  "Lyulin 3",
+  "Lyulin 4",
+  "Lyulin 5",
+  "Lyulin 6",
+  "Lyulin 7",
+  "Lyulin 8",
+  "Lyulin 9",
+  "Lyulin 10",
+  "Lyulin Center",
+  "Nadezhda 1",
+  "Nadezhda 2",
+  "Nadezhda 3",
+  "Nadezhda 4",
 ];
-const excludedNames = ["Benkovski", "Chelopechene", "Kremikovtsi", "Seslavtsi", "Trebich"];
+const excludedNames = ["Benkovski", "Chelopechene", "Kremikovtsi", "Seslavtsi", "Trebich", "zh.k. Lyulin"];
 
 test("Sofia neighborhood data is valid and English-readable", async () => {
   const data = JSON.parse(await readFile(dataUrl, "utf8"));
@@ -28,11 +44,20 @@ test("Sofia neighborhood data is valid and English-readable", async () => {
   assert.equal(new Set(names).size, names.length, "names must be unique");
 
   for (const feature of data.features) {
-    assert.match(feature.properties.id, /^osm-relations?-\d+(?:-\d+)*$/);
+    assert.match(feature.properties.id, /^osm-(?:relations?|nodes?)-\d+(?:-\d+)*$/);
     assert.doesNotMatch(feature.properties.name, /[\u0400-\u04ff]/, feature.properties.name);
     assert.ok(["Polygon", "MultiPolygon"].includes(feature.geometry?.type));
   }
 
   for (const name of requiredNames) assert.ok(names.includes(name), `missing ${name}`);
   for (const name of excludedNames) assert.ok(!names.includes(name), `unexpected ${name}`);
+  assert.ok(!ids.includes("osm-relation-16871937"), "aggregate Lyulin must be excluded");
+
+  const raina = data.features.find((feature) => feature.properties.name === "Raina Knyaginya");
+  assert.equal(raina.properties.id, "osm-node-13848488763");
+  assert.match(raina.properties.source, /OpenStreetMap node 13848488763/);
+
+  const hadzhiDimitar = data.features.find((feature) => feature.properties.name === "Hadzhi Dimitar");
+  assert.equal(hadzhiDimitar.geometry.type, "Polygon");
+  assert.equal(hadzhiDimitar.geometry.coordinates.length, 1);
 });
