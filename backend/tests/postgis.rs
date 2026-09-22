@@ -117,6 +117,41 @@ async fn equipment_counts_default_preserves_capabilities(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn enrichment_schema_keeps_current_sources_and_safe_defaults(pool: PgPool) {
+    sqlx::query(
+        r#"INSERT INTO source_playgrounds
+           (source, external_id, raw_data, location, source_date, date_meaning)
+           VALUES ('sofiaplan', '06.129', '{}'::jsonb,
+                   ST_SetSRID(ST_MakePoint(23.3444, 42.7070), 4326)::geography,
+                   '2019-04-18T00:00:00Z', 'observation')"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO playgrounds (id, location, source_url, primary_source) VALUES ('sofiaplan/06.129', ST_SetSRID(ST_MakePoint(23.3444, 42.7070), 4326)::geography, 'https://urbandata.sofia.bg/dataset/playgrounds', 'sofiaplan')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO playground_source_links (playground_id, source, external_id, match_method) VALUES ('sofiaplan/06.129', 'sofiaplan', '06.129', 'unmatched')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (photos, values): (Value, Value) = sqlx::query_as(
+        "SELECT photos, source_values FROM playgrounds WHERE id = 'sofiaplan/06.129'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(photos, json!([]));
+    assert_eq!(values, json!([]));
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn graphql_queries_use_postgis_and_combine_catalog_filters(pool: PgPool) {
     seed(&pool).await;
     let app = graphql::router(pool.clone(), "http://127.0.0.1:5173").unwrap();
