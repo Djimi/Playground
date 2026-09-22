@@ -1,7 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
+use geo::{Distance, Haversine, Point};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -320,11 +321,367 @@ fn rejected(source: SourceKind, external_id: &str, field: &str, value: &Value) {
     tracing::warn!(source, external_id, field, rejected_value = %value, "reject invalid source value");
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceLink {
+    pub playground_id: String,
+    pub source: SourceKind,
+    pub external_id: String,
+    pub match_method: &'static str,
+    pub match_distance_meters: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceMatch {
+    pub osm_id: String,
+    pub sofia_id: String,
+    pub distance_meters: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MatchResult {
+    pub clear_pairs: Vec<SourceMatch>,
+    pub ambiguous_source_ids: BTreeSet<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CanonicalPlayground {
+    pub id: String,
+    pub name: Option<String>,
+    pub longitude: f64,
+    pub latitude: f64,
+    pub capabilities: Vec<String>,
+    pub equipment_counts: BTreeMap<String, i32>,
+    pub min_age: Option<i16>,
+    pub max_age: Option<i16>,
+    pub address: Option<String>,
+    pub surface: Option<String>,
+    pub fenced: Option<bool>,
+    pub ownership: Option<String>,
+    pub access: Option<String>,
+    pub fee: Option<String>,
+    pub municipal_status: Option<String>,
+    pub ordinance_compliant: Option<bool>,
+    pub repairs: Option<String>,
+    pub notes: Option<String>,
+    pub primary_source: SourceKind,
+    pub source_url: String,
+    pub source_updated_at: Option<DateTime<Utc>>,
+    pub source_values: Vec<SourceValue>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MergeResult {
+    pub playgrounds: Vec<CanonicalPlayground>,
+    pub source_links: Vec<SourceLink>,
+}
+
+pub fn match_sources(osm: &[SourcePlayground], sofia: &[SourcePlayground]) -> MatchResult {
+    let mut candidates = Vec::new();
+    let mut osm_counts = vec![0usize; osm.len()];
+    let mut sofia_counts = vec![0usize; sofia.len()];
+
+    for (osm_index, osm_record) in osm.iter().enumerate().filter(|(_, record)| !record.excluded_from_catalog) {
+        let osm_point = Point::new(osm_record.longitude, osm_record.latitude);
+        for (sofia_index, sofia_record) in sofia
+            .iter()
+            .enumerate()
+            .filter(|(_, record)| !record.excluded_from_catalog)
+        {
+            let distance_meters = Haversine.distance(
+                osm_point,
+                Point::new(sofia_record.longitude, sofia_record.latitude),
+            );
+            if distance_meters <= MATCH_RADIUS_METERS {
+                osm_counts[osm_index] += 1;
+                sofia_counts[sofia_index] += 1;
+                candidates.push((osm_index, sofia_index, distance_meters));
+            }
+        }
+    }
+
+    let mut result = MatchResult::default();
+    for (osm_index, sofia_index, distance_meters) in candidates {
+        if osm_counts[osm_index] == 1 && sofia_counts[sofia_index] == 1 {
+            result.clear_pairs.push(SourceMatch {
+                osm_id: osm[osm_index].external_id.clone(),
+                sofia_id: sofia[sofia_index].external_id.clone(),
+                distance_meters,
+            });
+        } else {
+            result
+                .ambiguous_source_ids
+                .insert(osm[osm_index].external_id.clone());
+            result
+                .ambiguous_source_ids
+                .insert(sofia[sofia_index].external_id.clone());
+        }
+    }
+    result.clear_pairs.sort_by(|left, right| {
+        left.osm_id
+            .cmp(&right.osm_id)
+            .then_with(|| left.sofia_id.cmp(&right.sofia_id))
+    });
+    result
+}
+
+pub fn merge_catalog(
+    osm: &[SourcePlayground],
+    sofia: &[SourcePlayground],
+    matches: &MatchResult,
+) -> MergeResult {
+    let osm_by_id = osm
+        .iter()
+        .filter(|record| !record.excluded_from_catalog)
+        .map(|record| (record.external_id.as_str(), record))
+        .collect::<BTreeMap<_, _>>();
+    let sofia_by_id = sofia
+        .iter()
+        .filter(|record| !record.excluded_from_catalog)
+        .map(|record| (record.external_id.as_str(), record))
+        .collect::<BTreeMap<_, _>>();
+    let mut matched_osm = BTreeSet::new();
+    let mut matched_sofia = BTreeSet::new();
+    let mut result = MergeResult::default();
+    let mut clear_pairs = matches.clear_pairs.clone();
+    clear_pairs.sort_by(|left, right| {
+        left.osm_id
+            .cmp(&right.osm_id)
+            .then_with(|| left.sofia_id.cmp(&right.sofia_id))
+    });
+
+    for pair in clear_pairs {
+        let (Some(osm_record), Some(sofia_record)) = (
+            osm_by_id.get(pair.osm_id.as_str()),
+            sofia_by_id.get(pair.sofia_id.as_str()),
+        ) else {
+            continue;
+        };
+        if !matched_osm.insert(pair.osm_id.clone()) || !matched_sofia.insert(pair.sofia_id.clone()) {
+            continue;
+        }
+        let id = osm_record.external_id.clone();
+        result
+            .playgrounds
+            .push(canonical_playground(id.clone(), &[*osm_record, *sofia_record], osm_record));
+        result.source_links.extend([
+            SourceLink {
+                playground_id: id.clone(),
+                source: SourceKind::OpenStreetMap,
+                external_id: osm_record.external_id.clone(),
+                match_method: "proximity",
+                match_distance_meters: Some(pair.distance_meters),
+            },
+            SourceLink {
+                playground_id: id,
+                source: SourceKind::SofiaPlan,
+                external_id: sofia_record.external_id.clone(),
+                match_method: "proximity",
+                match_distance_meters: Some(pair.distance_meters),
+            },
+        ]);
+    }
+
+    for record in osm_by_id.values() {
+        if !matched_osm.contains(&record.external_id) {
+            result.playgrounds.push(canonical_playground(
+                record.external_id.clone(),
+                &[*record],
+                record,
+            ));
+            result.source_links.push(unmatched_link(record.external_id.clone(), record));
+        }
+    }
+    for record in sofia_by_id.values() {
+        if !matched_sofia.contains(&record.external_id) {
+            let id = format!("sofiaplan/{}", record.external_id);
+            result
+                .playgrounds
+                .push(canonical_playground(id.clone(), &[*record], record));
+            result.source_links.push(unmatched_link(id, record));
+        }
+    }
+
+    result.playgrounds.sort_by(|left, right| left.id.cmp(&right.id));
+    result.source_links.sort_by(|left, right| {
+        left.playground_id
+            .cmp(&right.playground_id)
+            .then_with(|| source_order(left.source).cmp(&source_order(right.source)))
+            .then_with(|| left.external_id.cmp(&right.external_id))
+    });
+    result
+}
+
+fn unmatched_link(playground_id: String, record: &SourcePlayground) -> SourceLink {
+    SourceLink {
+        playground_id,
+        source: record.source,
+        external_id: record.external_id.clone(),
+        match_method: "unmatched",
+        match_distance_meters: None,
+    }
+}
+
+fn canonical_playground(
+    id: String,
+    sources: &[&SourcePlayground],
+    primary: &SourcePlayground,
+) -> CanonicalPlayground {
+    let mut equipment_names = BTreeSet::new();
+    for source in sources {
+        equipment_names.extend(source.equipment.keys().cloned());
+    }
+    let mut capabilities = Vec::new();
+    let mut equipment_counts = BTreeMap::new();
+    for name in equipment_names {
+        match selected_equipment(&name, sources) {
+            Some((_, count)) if *count > 0 => {
+                capabilities.push(name.clone());
+                equipment_counts.insert(name, *count);
+            }
+            None => capabilities.push(name),
+            _ => {}
+        }
+    }
+
+    CanonicalPlayground {
+        id,
+        name: primary.name.clone(),
+        longitude: primary.longitude,
+        latitude: primary.latitude,
+        capabilities,
+        equipment_counts,
+        min_age: selected_i16("min_age", sources),
+        max_age: selected_i16("max_age", sources),
+        address: selected_string("address", sources),
+        surface: selected_string("surface", sources),
+        fenced: selected_bool("fenced", sources),
+        ownership: selected_string("ownership", sources),
+        access: selected_string("access", sources),
+        fee: selected_string("fee", sources),
+        municipal_status: selected_string("municipal_status", sources),
+        ordinance_compliant: selected_bool("ordinance_compliant", sources),
+        repairs: selected_string("repairs", sources),
+        notes: selected_string("notes", sources),
+        primary_source: primary.source,
+        source_url: source_url(primary),
+        source_updated_at: primary.source_date,
+        source_values: source_values(sources),
+    }
+}
+
+fn source_values(sources: &[&SourcePlayground]) -> Vec<SourceValue> {
+    let mut values = Vec::new();
+    for source in sources {
+        for (field, value) in &source.values {
+            values.push(SourceValue {
+                field: field.clone(),
+                value: value.clone(),
+                source: source.source,
+                source_id: source.external_id.clone(),
+                date: source.source_date,
+                date_meaning: source.date_meaning,
+                selected: selected_value(field, sources).is_some_and(|(selected, _)| {
+                    selected.source == source.source && selected.external_id == source.external_id
+                }),
+            });
+        }
+        for (name, count) in &source.equipment {
+            let Some(count) = count else {
+                continue;
+            };
+            values.push(SourceValue {
+                field: format!("equipment.{name}"),
+                value: Value::from(*count),
+                source: source.source,
+                source_id: source.external_id.clone(),
+                date: source.source_date,
+                date_meaning: source.date_meaning,
+                selected: selected_equipment(name, sources).is_some_and(|(selected, _)| {
+                    selected.source == source.source && selected.external_id == source.external_id
+                }),
+            });
+        }
+    }
+    values.sort_by(|left, right| {
+        left.field
+            .cmp(&right.field)
+            .then_with(|| source_order(left.source).cmp(&source_order(right.source)))
+            .then_with(|| left.source_id.cmp(&right.source_id))
+    });
+    values
+}
+
+fn selected_value<'a>(
+    field: &str,
+    sources: &[&'a SourcePlayground],
+) -> Option<(&'a SourcePlayground, &'a Value)> {
+    sources
+        .iter()
+        .filter_map(|source| source.values.get(field).map(|value| (*source, value)))
+        .max_by(|left, right| compare_candidates(field, left.0, right.0))
+}
+
+fn selected_equipment<'a>(
+    name: &str,
+    sources: &[&'a SourcePlayground],
+) -> Option<(&'a SourcePlayground, &'a i32)> {
+    sources
+        .iter()
+        .filter_map(|source| source.equipment.get(name).and_then(|count| count.as_ref()).map(|count| (*source, count)))
+        .max_by(|left, right| compare_candidates("equipment", left.0, right.0))
+}
+
+fn compare_candidates(field: &str, left: &SourcePlayground, right: &SourcePlayground) -> std::cmp::Ordering {
+    left.source_date
+        .cmp(&right.source_date)
+        .then_with(|| fallback_rank(field, left.source).cmp(&fallback_rank(field, right.source)))
+        .then_with(|| source_order(right.source).cmp(&source_order(left.source)))
+        .then_with(|| right.external_id.cmp(&left.external_id))
+}
+
+fn fallback_rank(field: &str, source: SourceKind) -> u8 {
+    match (field, source) {
+        ("name" | "surface" | "access" | "fee", SourceKind::OpenStreetMap)
+        | ("address" | "ownership" | "min_age" | "max_age" | "fenced" | "municipal_status" | "ordinance_compliant" | "repairs" | "notes" | "equipment", SourceKind::SofiaPlan) => 2,
+        ("name" | "surface" | "access" | "fee", _)
+        | ("address" | "ownership" | "min_age" | "max_age" | "fenced" | "municipal_status" | "ordinance_compliant" | "repairs" | "notes" | "equipment", _) => 1,
+        (_, SourceKind::OpenStreetMap) => 2,
+        (_, SourceKind::SofiaPlan) => 1,
+    }
+}
+
+fn selected_string(field: &str, sources: &[&SourcePlayground]) -> Option<String> {
+    selected_value(field, sources).and_then(|(_, value)| value.as_str().map(str::to_owned))
+}
+
+fn selected_i16(field: &str, sources: &[&SourcePlayground]) -> Option<i16> {
+    selected_value(field, sources).and_then(|(_, value)| value.as_i64()?.try_into().ok())
+}
+
+fn selected_bool(field: &str, sources: &[&SourcePlayground]) -> Option<bool> {
+    selected_value(field, sources).and_then(|(_, value)| value.as_bool())
+}
+
+fn source_url(source: &SourcePlayground) -> String {
+    match source.source {
+        SourceKind::OpenStreetMap => format!("https://www.openstreetmap.org/{}", source.external_id),
+        SourceKind::SofiaPlan => SOFIAPLAN_DATASET_PAGE.into(),
+    }
+}
+
+fn source_order(source: SourceKind) -> u8 {
+    match source {
+        SourceKind::OpenStreetMap => 0,
+        SourceKind::SofiaPlan => 1,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
     use std::{
+        collections::BTreeSet,
         io::{Result as IoResult, Write},
         sync::{Arc, Mutex},
     };
@@ -447,5 +804,190 @@ mod tests {
         assert!(output.contains("external_id=\"invalid-address\""), "{output}");
         assert!(output.contains("field=\"address\""), "{output}");
         assert!(output.contains("rejected_value=42"), "{output}");
+    }
+
+    fn source(source: SourceKind, external_id: &str, longitude: f64, latitude: f64) -> SourcePlayground {
+        SourcePlayground {
+            source,
+            external_id: external_id.into(),
+            raw_data: Value::Null,
+            name: None,
+            longitude,
+            latitude,
+            source_date: None,
+            date_meaning: None,
+            values: BTreeMap::new(),
+            equipment: BTreeMap::new(),
+            commons_titles: Vec::new(),
+            excluded_from_catalog: false,
+        }
+    }
+
+    fn latitude_offset(meters: f64) -> f64 {
+        // Keep the f64 fixture on the inclusive side of its mathematical boundary.
+        meters / 111_195.08 - 1e-12
+    }
+
+    #[test]
+    fn matching_merges_a_mutual_pair_at_14_9_meters() {
+        let osm = vec![source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70)];
+        let sofia = vec![source(
+            SourceKind::SofiaPlan,
+            "06.129",
+            23.32,
+            42.70 + latitude_offset(14.9),
+        )];
+
+        let result = match_sources(&osm, &sofia);
+
+        assert_eq!(result.clear_pairs.len(), 1);
+        assert_eq!(result.clear_pairs[0].osm_id, "node/1");
+        assert_eq!(result.clear_pairs[0].sofia_id, "06.129");
+        assert!((result.clear_pairs[0].distance_meters - 14.9).abs() < 0.05);
+        assert!(result.ambiguous_source_ids.is_empty());
+    }
+
+    #[test]
+    fn matching_includes_the_15_meter_boundary() {
+        let osm = vec![source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70)];
+        let sofia = vec![source(
+            SourceKind::SofiaPlan,
+            "06.129",
+            23.32,
+            42.70 + latitude_offset(15.0),
+        )];
+
+        let result = match_sources(&osm, &sofia);
+
+        assert_eq!(result.clear_pairs.len(), 1);
+        assert!((result.clear_pairs[0].distance_meters - 15.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn matching_keeps_records_separate_beyond_15_meters() {
+        let osm = vec![source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70)];
+        let sofia = vec![source(
+            SourceKind::SofiaPlan,
+            "06.129",
+            23.32,
+            42.70 + latitude_offset(15.1),
+        )];
+
+        assert_eq!(match_sources(&osm, &sofia), MatchResult::default());
+    }
+
+    #[test]
+    fn matching_keeps_one_osm_record_with_two_candidates_separate() {
+        let osm = vec![source(SourceKind::OpenStreetMap, "node/2", 23.32, 42.70)];
+        let sofia = vec![
+            source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70 + latitude_offset(5.0)),
+            source(SourceKind::SofiaPlan, "06.130", 23.32, 42.70 + latitude_offset(10.0)),
+        ];
+
+        let result = match_sources(&osm, &sofia);
+
+        assert!(result.clear_pairs.is_empty());
+        assert_eq!(
+            result.ambiguous_source_ids,
+            BTreeSet::from(["node/2".into(), "06.129".into(), "06.130".into()])
+        );
+    }
+
+    #[test]
+    fn matching_keeps_one_sofiaplan_record_with_two_candidates_separate() {
+        let osm = vec![
+            source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70),
+            source(SourceKind::OpenStreetMap, "node/2", 23.32, 42.70 + latitude_offset(10.0)),
+        ];
+        let sofia = vec![source(
+            SourceKind::SofiaPlan,
+            "06.129",
+            23.32,
+            42.70 + latitude_offset(5.0),
+        )];
+
+        let result = match_sources(&osm, &sofia);
+
+        assert!(result.clear_pairs.is_empty());
+        assert_eq!(
+            result.ambiguous_source_ids,
+            BTreeSet::from(["node/1".into(), "node/2".into(), "06.129".into()])
+        );
+    }
+
+    #[test]
+    fn merging_selects_newest_values_and_retains_false_and_zero_provenance() {
+        let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
+        osm.source_date = Some(DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z").unwrap().into());
+        osm.date_meaning = Some(DateMeaning::SourceUpdate);
+        osm.values.insert("fenced".into(), json!(false));
+        osm.equipment.insert("swing".into(), Some(0));
+
+        let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
+        sofia.source_date = Some(DateTime::parse_from_rfc3339("2019-04-18T00:00:00Z").unwrap().into());
+        sofia.date_meaning = Some(DateMeaning::Observation);
+        sofia.values.insert("fenced".into(), json!(true));
+        sofia.equipment.insert("swing".into(), Some(2));
+
+        let matches = match_sources(&[osm.clone()], &[sofia.clone()]);
+        let merged = merge_catalog(&[osm], &[sofia], &matches);
+        let playground = &merged.playgrounds[0];
+
+        assert_eq!(playground.id, "node/1");
+        assert_eq!(playground.fenced, Some(false));
+        assert!(playground.capabilities.is_empty());
+        assert!(playground.equipment_counts.is_empty());
+        assert_eq!(
+            playground
+                .source_values
+                .iter()
+                .find(|value| value.field == "equipment.swing" && value.source_id == "node/1")
+                .map(|value| (&value.value, value.selected)),
+            Some((&json!(0), true))
+        );
+        assert_eq!(
+            playground
+                .source_values
+                .iter()
+                .find(|value| value.field == "fenced" && value.source_id == "06.129")
+                .map(|value| value.selected),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn merging_uses_source_fallbacks_and_keeps_stable_ids_and_exclusions() {
+        let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
+        osm.name = Some("OSM name".into());
+        osm.values.insert("address".into(), json!("OSM address"));
+        osm.values.insert("surface".into(), json!("rubber"));
+        osm.values.insert("min_age".into(), json!(1));
+
+        let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
+        sofia.values.insert("address".into(), json!("Sofia address"));
+        sofia.values.insert("surface".into(), json!("sand"));
+        sofia.values.insert("min_age".into(), json!(3));
+        sofia.values.insert("notes".into(), json!("Retained despite OSM missing it"));
+
+        let osm_only = source(SourceKind::OpenStreetMap, "node/2", 23.40, 42.70);
+        let sofia_only = source(SourceKind::SofiaPlan, "06.130", 23.50, 42.70);
+        let mut excluded = source(SourceKind::SofiaPlan, "06.131", 23.60, 42.70);
+        excluded.excluded_from_catalog = true;
+
+        let osm_records = vec![osm.clone(), osm_only];
+        let sofia_records = vec![sofia.clone(), sofia_only, excluded];
+        let merged = merge_catalog(&osm_records, &sofia_records, &match_sources(&osm_records, &sofia_records));
+        let playground = merged.playgrounds.iter().find(|playground| playground.id == "node/1").unwrap();
+
+        assert_eq!(playground.name.as_deref(), Some("OSM name"));
+        assert_eq!(playground.address.as_deref(), Some("Sofia address"));
+        assert_eq!(playground.surface.as_deref(), Some("rubber"));
+        assert_eq!(playground.min_age, Some(3));
+        assert_eq!(playground.notes.as_deref(), Some("Retained despite OSM missing it"));
+        assert_eq!(
+            merged.playgrounds.iter().map(|playground| playground.id.as_str()).collect::<Vec<_>>(),
+            vec!["node/1", "node/2", "sofiaplan/06.130"]
+        );
+        assert!(merged.source_links.iter().all(|link| link.external_id != "06.131"));
     }
 }
