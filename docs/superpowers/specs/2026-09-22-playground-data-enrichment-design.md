@@ -115,11 +115,14 @@ Photos store URL, author, licence, attribution text, and original Commons page. 
 
 ## Matching
 
-1. A direct cross-source identifier wins when one is available.
-2. Otherwise, source records become candidates when their representative points are within 15 metres.
-3. The importer merges only mutual, one-to-one nearest candidates inside that radius.
-4. If either record has multiple candidates inside the radius, or the mutual-nearest rule fails, the records remain separate.
-5. Unmatched records remain independent canonical playgrounds.
+The current exports contain no shared cross-source identifier, so the importer uses spatial matching:
+
+1. Source records become candidates when their representative points are within 15 metres.
+2. The importer merges only pairs where each record has exactly one opposite-source candidate inside that radius.
+3. If either record has multiple candidates inside the radius, the records remain separate.
+4. Unmatched records remain independent canonical playgrounds.
+
+If a trustworthy shared identifier appears in both sources later, it should take precedence over spatial matching in a separately reviewed change.
 
 This deliberately prefers a possible duplicate over combining facts from two different nearby playgrounds. The 15-metre limit is one named importer constant so later evidence can tune it without changing the matching design.
 
@@ -127,8 +130,8 @@ This deliberately prefers a possible duplicate over combining facts from two dif
 
 For each field:
 
-1. Prefer the newest non-missing value with an explicit field observation date.
-2. Otherwise, prefer the newest non-missing value using the source record update date.
+1. Use a field observation date when present; otherwise use the source-record update date as the value's effective date.
+2. Prefer the non-missing value with the newest effective date.
 3. If dates are equal or absent, apply the field fallback below.
 4. Preserve every source value and identify the selected value.
 
