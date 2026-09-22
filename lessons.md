@@ -13,3 +13,4 @@
 - For OpenSpec onboarding, prefer a small visible bug the user can reproduce before and after the fix; do not lead with an abstract quality issue.
 - When a skill guardrail conflicts with the user's explicit end-to-end instruction, state the conflict and ask once; after the user confirms, treat the whole requested chain as authorized and do not re-ask per phase.
 - Once the user says "go" on a multi-step chain (apply, archive, commit, PR, merge), execute every step in the same turn; a completed intermediate tool call is not a stopping point.
+- For licence allowlists, tokenize and match known forms exactly; never use substring or prefix checks for policy decisions.
