@@ -77,6 +77,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | PLAYGROUND-008 | High | Open details at 320 × 640 px. | Details fill the phone viewport, the Back control remains visible, and the page has no horizontal scrolling. | Browser check and responsive CSS |
 | PLAYGROUND-009 | Medium | Open details at 768 px and 1280 px widths. | Details remain usable beside or over the map; gallery, source link, and selected styling do not clip. | Browser check and responsive CSS |
 | PLAYGROUND-010 | High | Hover a playground pin, then click it while the compact preview is visible. | The details panel opens and remains visible; the selected pin uses orange styling and no compact preview popup remains. | Pointer activation regression check |
+| PLAYGROUND-011 | High | Hover a playground pin, then move the pointer to empty map space without clicking. | The compact preview closes and the pin returns to default neutral blue; no pin stays in preview styling. | User report and `src/main.js` |
 
 ## Focused Map Navigation
 
@@ -125,6 +126,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 - Outlying settlements appeared as selectable neighborhoods; covered by `DATA-005`.
 - Hover showed a tooltip but did not visibly highlight the neighborhood boundary; covered by `POINTER-003` through `POINTER-006`.
 - South Park and Sofia Zoo were visible only in raster tiles; covered by `DATA-006` and `POINTER-007`.
+- Playground pins stayed in green preview styling after the pointer left; covered by `PLAYGROUND-011`.
 
 ## Backend API and Import
 
