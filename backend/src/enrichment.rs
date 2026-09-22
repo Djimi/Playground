@@ -60,14 +60,22 @@ pub fn normalize_sofiaplan(body: &str) -> Result<Vec<SourcePlayground>> {
         .get("features")
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("SofiaPlan response must contain a features array"))?;
+    if features.is_empty() {
+        bail!("SofiaPlan response contains no playgrounds");
+    }
     let observed_at = DateTime::parse_from_rfc3339(SOFIAPLAN_OBSERVED_AT)
         .expect("SofiaPlan observation timestamp is valid")
         .with_timezone(&Utc);
 
-    features
+    let records = features
         .iter()
         .map(|feature| normalize_sofiaplan_feature(feature, observed_at))
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    let mut ids = std::collections::BTreeSet::new();
+    if records.iter().any(|record| !ids.insert(&record.external_id)) {
+        bail!("SofiaPlan response contains duplicate playground identifiers");
+    }
+    Ok(records)
 }
 
 fn normalize_sofiaplan_feature(feature: &Value, observed_at: DateTime<Utc>) -> Result<SourcePlayground> {
@@ -85,16 +93,48 @@ fn normalize_sofiaplan_feature(feature: &Value, observed_at: DateTime<Utc>) -> R
     let mut values = BTreeMap::new();
     let mut equipment = BTreeMap::new();
 
-    insert_text(&mut values, "address", preferred(properties, &["new_mestopolozh", "mestopolozh_old"]));
-    insert_text(&mut values, "ownership", preferred(properties, &["new_vids_kk", "vids_kk_old"]));
-    insert_text(&mut values, "ownership_detail", preferred(properties, &["new_sobstvenos", "sobstvenost_old"]));
     insert_text(
         &mut values,
+        SourceKind::SofiaPlan,
+        &external_id,
+        "address",
+        preferred(properties, &["new_mestopolozh", "mestopolozh_old"]),
+    );
+    insert_text(
+        &mut values,
+        SourceKind::SofiaPlan,
+        &external_id,
+        "ownership",
+        preferred(properties, &["new_vids_kk", "vids_kk_old"]),
+    );
+    insert_text(
+        &mut values,
+        SourceKind::SofiaPlan,
+        &external_id,
+        "ownership_detail",
+        preferred(properties, &["new_sobstvenos", "sobstvenost_old"]),
+    );
+    insert_text(
+        &mut values,
+        SourceKind::SofiaPlan,
+        &external_id,
         "municipal_status",
         preferred(properties, &["new_label", "new_meropr", "meropr_old"]),
     );
-    insert_text(&mut values, "repairs", preferred(properties, &["new_meropr", "meropr_old"]));
-    insert_text(&mut values, "notes", preferred(properties, &["new_zabelezhka", "zabelezhka"]));
+    insert_text(
+        &mut values,
+        SourceKind::SofiaPlan,
+        &external_id,
+        "repairs",
+        preferred(properties, &["new_meropr", "meropr_old"]),
+    );
+    insert_text(
+        &mut values,
+        SourceKind::SofiaPlan,
+        &external_id,
+        "notes",
+        preferred(properties, &["new_zabelezhka", "zabelezhka"]),
+    );
 
     if let Some(value) = preferred(properties, &["new_vazrgrupi", "vazr_old"]) {
         match parse_age_range(value) {
@@ -102,7 +142,7 @@ fn normalize_sofiaplan_feature(feature: &Value, observed_at: DateTime<Utc>) -> R
                 values.insert("min_age".into(), Value::from(min_age));
                 values.insert("max_age".into(), Value::from(max_age));
             }
-            None => rejected(&external_id, "age", value),
+            None => rejected(SourceKind::SofiaPlan, &external_id, "age", value),
         }
     }
     if let Some(value) = preferred(properties, &["new_ograda", "ograda"]) {
@@ -110,7 +150,7 @@ fn normalize_sofiaplan_feature(feature: &Value, observed_at: DateTime<Utc>) -> R
             Some(fenced) => {
                 values.insert("fenced".into(), Value::Bool(fenced));
             }
-            None => rejected(&external_id, "fenced", value),
+            None => rejected(SourceKind::SofiaPlan, &external_id, "fenced", value),
         }
     }
     if let Some(value) = preferred(properties, &["new_naredba1", "naredba1_old"]) {
@@ -118,7 +158,12 @@ fn normalize_sofiaplan_feature(feature: &Value, observed_at: DateTime<Utc>) -> R
             Some(compliant) => {
                 values.insert("ordinance_compliant".into(), Value::Bool(compliant));
             }
-            None => rejected(&external_id, "ordinance_compliant", value),
+            None => rejected(
+                SourceKind::SofiaPlan,
+                &external_id,
+                "ordinance_compliant",
+                value,
+            ),
         }
     }
     for (field, property, equipment_name) in [
@@ -131,7 +176,7 @@ fn normalize_sofiaplan_feature(feature: &Value, observed_at: DateTime<Utc>) -> R
                 Some(count) => {
                     equipment.insert(equipment_name.into(), Some(count));
                 }
-                None => rejected(&external_id, field, value),
+                None => rejected(SourceKind::SofiaPlan, &external_id, field, value),
             }
         }
     }
@@ -141,7 +186,7 @@ fn normalize_sofiaplan_feature(feature: &Value, observed_at: DateTime<Utc>) -> R
             known(properties.get(property)).and_then(|value| match parse_count(value) {
                 Some(count) => Some(count),
                 None => {
-                    rejected(&external_id, "seesaw", value);
+                    rejected(SourceKind::SofiaPlan, &external_id, "seesaw", value);
                     None
                 }
             })
@@ -182,9 +227,20 @@ fn preferred<'a>(properties: &'a serde_json::Map<String, Value>, names: &[&str])
     names.iter().find_map(|name| known(properties.get(*name)))
 }
 
-fn insert_text(values: &mut BTreeMap<String, Value>, field: &str, value: Option<&Value>) {
-    if let Some(value) = value.and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+fn insert_text(
+    values: &mut BTreeMap<String, Value>,
+    source: SourceKind,
+    external_id: &str,
+    field: &str,
+    value: Option<&Value>,
+) {
+    let Some(value) = value else {
+        return;
+    };
+    if let Some(value) = value.as_str().map(str::trim).filter(|value| !value.is_empty()) {
         values.insert(field.into(), Value::String(value.into()));
+    } else {
+        rejected(source, external_id, field, value);
     }
 }
 
@@ -208,7 +264,7 @@ fn parse_age_range(value: &Value) -> Option<(i16, i16)> {
 }
 
 fn parse_fenced(value: &Value) -> Option<bool> {
-    parse_count(value).map(|count| count > 0)
+    value.as_bool().or_else(|| parse_count(value).map(|count| count > 0))
 }
 
 fn parse_bulgarian_bool(value: &Value) -> Option<bool> {
@@ -256,14 +312,45 @@ fn sofiaplan_point(feature: &Value, external_id: &str) -> Result<(f64, f64)> {
     Ok((longitude, latitude))
 }
 
-fn rejected(external_id: &str, field: &str, value: &Value) {
-    tracing::warn!(source = "sofiaplan", external_id, field, rejected_value = %value, "reject invalid SofiaPlan value");
+fn rejected(source: SourceKind, external_id: &str, field: &str, value: &Value) {
+    let source = match source {
+        SourceKind::OpenStreetMap => "openstreetmap",
+        SourceKind::SofiaPlan => "sofiaplan",
+    };
+    tracing::warn!(source, external_id, field, rejected_value = %value, "reject invalid source value");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::{
+        io::{Result as IoResult, Write},
+        sync::{Arc, Mutex},
+    };
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone)]
+    struct TestWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl<'a> MakeWriter<'a> for TestWriter {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    impl Write for TestWriter {
+        fn write(&mut self, bytes: &[u8]) -> IoResult<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> IoResult<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn normalizes_sofiaplan_fixture_with_explicit_zeroes_and_exclusions() {
@@ -311,5 +398,54 @@ mod tests {
             r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"nobekt_new":"one"},"geometry":{"type":"MultiPoint","coordinates":[[23.3,42.7],[23.4,42.8]]}}]}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn rejects_empty_and_duplicate_sofiaplan_records() {
+        assert!(normalize_sofiaplan(r#"{"type":"FeatureCollection","features":[]}"#).is_err());
+        assert!(normalize_sofiaplan(
+            r#"{"type":"FeatureCollection","features":[
+              {"type":"Feature","properties":{"nobekt_new":"same"},"geometry":{"type":"MultiPoint","coordinates":[[23.3,42.7]]}},
+              {"type":"Feature","properties":{"nobekt_new":"same"},"geometry":{"type":"MultiPoint","coordinates":[[23.4,42.8]]}}
+            ]}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn accepts_boolean_fencing_values() {
+        let records = normalize_sofiaplan(
+            r#"{"type":"FeatureCollection","features":[
+              {"type":"Feature","properties":{"nobekt_new":"false","new_ograda":false},"geometry":{"type":"MultiPoint","coordinates":[[23.3,42.7]]}},
+              {"type":"Feature","properties":{"nobekt_new":"true","new_ograda":true},"geometry":{"type":"MultiPoint","coordinates":[[23.4,42.8]]}}
+            ]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(records[0].values["fenced"], json!(false));
+        assert_eq!(records[1].values["fenced"], json!(true));
+    }
+
+    #[test]
+    fn warns_and_drops_invalid_text_mapped_values() {
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(TestWriter(output.clone()))
+            .finish();
+        let records = tracing::subscriber::with_default(subscriber, || {
+            normalize_sofiaplan(
+                r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"nobekt_new":"invalid-address","new_mestopolozh":42},"geometry":{"type":"MultiPoint","coordinates":[[23.3,42.7]]}}]}"#,
+            )
+            .unwrap()
+        });
+
+        assert!(!records[0].values.contains_key("address"));
+        let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(output.contains("source=\"sofiaplan\""), "{output}");
+        assert!(output.contains("external_id=\"invalid-address\""), "{output}");
+        assert!(output.contains("field=\"address\""), "{output}");
+        assert!(output.contains("rejected_value=42"), "{output}");
     }
 }

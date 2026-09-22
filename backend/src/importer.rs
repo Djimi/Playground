@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use geo::{Contains, InteriorPoint, Intersects, LineString, MultiPolygon, Point, Polygon};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -66,39 +66,32 @@ pub struct ImportCounts {
 
 #[derive(Debug, Deserialize)]
 struct OverpassResponse {
-    elements: Vec<Element>,
+    elements: Vec<Value>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 struct Element {
     #[serde(rename = "type")]
     kind: String,
     id: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     lat: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     lon: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     center: Option<RawPoint>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     bounds: Option<Bounds>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     geometry: Option<Vec<RawPoint>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     members: Option<Vec<Member>>,
     #[serde(default)]
     tags: serde_json::Map<String, Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     timestamp: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 struct RawPoint {
     lat: f64,
     lon: f64,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 struct Bounds {
     minlat: f64,
     minlon: f64,
@@ -115,13 +108,12 @@ impl Bounds {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 struct Member {
     #[serde(rename = "type")]
     kind: String,
     #[serde(default)]
     role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     geometry: Option<Vec<RawPoint>>,
 }
 
@@ -183,17 +175,19 @@ pub fn normalize_overpass(body: &str) -> Result<Vec<SourcePlayground>> {
     let mut roots = Vec::new();
     let mut equipment = Vec::new();
 
-    for element in &response.elements {
-        let leisure = tag(element, "leisure");
-        let equipment_kind = tag(element, "playground").and_then(normalize_capability);
+    for raw_element in response.elements {
+        let element: Element = serde_json::from_value(raw_element.clone())
+            .context("Overpass response has an invalid element")?;
+        let leisure = tag(&element, "leisure");
+        let equipment_kind = tag(&element, "playground").and_then(normalize_capability);
 
         if leisure == Some("playground") {
-            roots.push(normalize_root(element)?);
+            roots.push(normalize_root(&element, raw_element)?);
         } else if let Some(capability) = equipment_kind {
             equipment.push((
-                element_point(element)?,
+                element_point(&element)?,
                 capability,
-                serde_json::to_value(element).context("serialize OpenStreetMap equipment")?,
+                raw_element,
             ));
         }
     }
@@ -374,7 +368,7 @@ pub async fn replace_snapshot(
     })
 }
 
-fn normalize_root(element: &Element) -> Result<Root> {
+fn normalize_root(element: &Element, raw_root: Value) -> Result<Root> {
     if element.id < 0 || !matches!(element.kind.as_str(), "node" | "way" | "relation") {
         bail!("playground has invalid OpenStreetMap type or identifier");
     }
@@ -462,7 +456,7 @@ fn normalize_root(element: &Element) -> Result<Root> {
             excluded_from_catalog: false,
         },
         area,
-        raw_root: serde_json::to_value(element).context("serialize OpenStreetMap playground")?,
+        raw_root,
         raw_equipment: Vec::new(),
     })
 }
@@ -731,11 +725,11 @@ mod tests {
         let playgrounds = normalize_overpass(
             r#"{
               "elements": [
-                {"type":"way","id":20,"timestamp":"2026-09-20T12:00:00Z",
+                {"type":"way","id":20,"version":3,"changeset":4,"user":"mapper","uid":5,"timestamp":"2026-09-20T12:00:00Z",
                  "center":{"lat":42.5,"lon":23.5},
                  "geometry":[{"lat":42.0,"lon":23.0},{"lat":42.0,"lon":24.0},{"lat":43.0,"lon":24.0},{"lat":43.0,"lon":23.0},{"lat":42.0,"lon":23.0}],
                  "tags":{"leisure":"playground","name":" Test ","playground:swing":"yes","playground:slide":"no","min_age":"-1","max_age":"12","image":"https://example.test/photo.jpg","wikimedia_commons":"File:Playground.jpg","surface":"rubber","access":"yes","fee":"no"}},
-                {"type":"node","id":21,"lat":42.25,"lon":23.25,"tags":{"playground":"slide"}},
+                {"type":"node","id":21,"version":6,"changeset":7,"user":"equipment-mapper","uid":8,"lat":42.25,"lon":23.25,"tags":{"playground":"slide"}},
                 {"type":"node","id":22,"lat":42.5,"lon":23.75,"tags":{"playground":"slide"}},
                 {"type":"node","id":23,"lat":41.0,"lon":23.25,"tags":{"playground":"seesaw"}}
               ]
@@ -761,7 +755,15 @@ mod tests {
         assert_eq!(playground.values["fee"], "no");
         assert_eq!(playground.commons_titles, ["File:Playground.jpg"]);
         assert_eq!(playground.raw_data["root"]["id"], 20);
+        assert_eq!(playground.raw_data["root"]["version"], 3);
+        assert_eq!(playground.raw_data["root"]["changeset"], 4);
+        assert_eq!(playground.raw_data["root"]["user"], "mapper");
+        assert_eq!(playground.raw_data["root"]["uid"], 5);
         assert_eq!(playground.raw_data["equipment"].as_array().unwrap().len(), 2);
+        assert_eq!(playground.raw_data["equipment"][0]["version"], 6);
+        assert_eq!(playground.raw_data["equipment"][0]["changeset"], 7);
+        assert_eq!(playground.raw_data["equipment"][0]["user"], "equipment-mapper");
+        assert_eq!(playground.raw_data["equipment"][0]["uid"], 8);
         assert_eq!((playground.longitude, playground.latitude), (23.5, 42.5));
         assert_eq!(
             playground.date_meaning,
@@ -813,6 +815,7 @@ mod tests {
         );
         assert_eq!(playgrounds[1].external_id, "relation/8");
         assert_eq!(playgrounds[1].equipment["climbing_frame"], None);
+        assert_eq!(playgrounds[1].raw_data["root"]["members"][0]["ref"], 1);
     }
 
     #[test]
