@@ -62,6 +62,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | POINTER-006 | Medium | Move pointer directly between adjacent polygons. | Highlight follows the pointer; previous polygon does not remain highlighted. | Hover regression follow-up |
 | POINTER-007 | High | Click South Park, then Sofia Zoo. | Each real facility polygon fits the map without persistent styling; similarly named neighborhood polygons do not intercept the click. | User request |
 | POINTER-008 | High | Open named and unnamed playground pins. | Popup shows safe name fallback, capabilities when present, and an OpenStreetMap link. | User request |
+| POINTER-009 | High | Focus one area with `Tab`, then briefly move the pointer across another area. | The focused area keeps its highlight and heading; the unrelated area returns to default styling after the pointer leaves. | OpenSpec preview-state regression |
 
 ## Playground Preview and Details
 
@@ -78,6 +79,10 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | PLAYGROUND-009 | Medium | Open details at 768 px and 1280 px widths. | Details remain usable beside or over the map; gallery, source link, and selected styling do not clip. | Browser check and responsive CSS |
 | PLAYGROUND-010 | High | Hover a playground pin, then click it while the compact preview is visible. | The details panel opens and remains visible; the selected pin uses orange styling and no compact preview popup remains. | Pointer activation regression check |
 | PLAYGROUND-011 | High | Hover a playground pin, then move the pointer to empty map space without clicking. | The compact preview closes and the pin returns to default neutral blue; no pin stays in preview styling. | User report and `src/main.js` |
+| PLAYGROUND-012 | High | Open three different playground pins one after another. | The previous pins return to neutral blue and exactly one pin—the current playground—uses orange selected styling. | OpenSpec selection-state regression |
+| PLAYGROUND-013 | High | Focus one playground pin with `Tab`, then briefly move the pointer across another pin. | The focused pin keeps its preview and the unrelated pin returns to neutral styling after the pointer leaves. | OpenSpec preview-state regression |
+| PLAYGROUND-014 | High | Preview pins at the map edge and below the fixed header. | The compact preview auto-pans into the usable map viewport without clipped content or disruptive animation. | OpenSpec popup-boundary regression |
+| PLAYGROUND-015 | High | Open details for a named playground with one valid and one blocked photo URL. | Each image uses the playground name in its alternative text; the blocked image becomes an explicit `Photo unavailable` state. | OpenSpec photo-fallback regression |
 
 ## Focused Map Navigation
 
@@ -89,6 +94,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | NAV-004 | High | Press `Escape` in the default state. | Nothing changes; native Leaflet wheel, touch, keyboard, and zoom-control behavior remains available without `Ctrl`. | Browser check and Leaflet behavior |
 | NAV-005 | High | Open playground details, then click or tap empty map space. | Details close and the pin selection clears; the pin returns to default blue with no focus ring and no compact preview. | User report and `src/main.js` |
 | NAV-006 | High | Open playground details, then click or tap a neighborhood polygon. | Details close and the pin selection clears with no pin focus or preview; the first polygon input does not fit bounds, and the polygon shows no persistent styling once the pointer leaves. | User report and `src/main.js` |
+| NAV-007 | High | Open details at 320 px and 1280 px, press `Tab` and `Shift+Tab`, then press `Escape`. | The dialog is modal; focus cycles only through its controls, the map/header are inert, and focus returns to the refreshed/current pin when available. | OpenSpec modal-focus regression |
 
 ## Keyboard and Accessibility
 
@@ -119,6 +125,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | FAILURE-001 | Medium | Temporarily make one GeoJSON request fail in a test environment. | Other polygon data remains usable and the failed request is logged. | Source review |
 | FAILURE-002 | Medium | Stop the API, then load and use the map. | Area polygons remain usable and no playground pins are displayed; the failure is logged without an uncaught error. | All-pins failure scenario and browser review |
 | FAILURE-003 | Medium | Block the `/graphql` catalog request in browser DevTools (or return an error for it), then reload the map. | No playground pins are displayed, no partial or stale pins remain from earlier renders, and the failure is logged without an uncaught error. | All-pins failure scenario and browser check |
+| FAILURE-004 | Medium | Delay neighborhood, destination-area, and playground requests, then return empty or failed responses independently. | The live status region communicates loading, empty, and unavailable states while successfully loaded map layers remain usable. | OpenSpec status-region regression |
 
 ## Session Findings Covered
 
