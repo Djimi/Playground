@@ -25,6 +25,15 @@ protocol, or architectural change with the user first (for example CQRS,
 transactional outbox, or optimistic/pessimistic locking). Routine implementation
 libraries, such as a PostgreSQL driver, do not require discussion.
 
+## Specifications
+
+`openspec/specs/` is the source of truth for system behavior.
+
+Before changing behavior:
+- inspect the relevant specs in `openspec/specs/`
+- check `openspec/changes/` for related active changes
+- do not contradict existing specs
+
 ## Project docs
 - Local setup: [LOCAL_SETUP.md](LOCAL_SETUP.md)
 - Technology gotchas: [docs/gotchas](docs/gotchas/)
@@ -46,7 +55,8 @@ before creating new files.
 
 
 ## Subagent Strategy
-- Choose the right model for the task with the appropriate effort level
+- The main context should be as clean as possible containing just the needed information
+- Choose the right model for the task with the appropriate effort level - do not just start agent with the same agent as the main session!
 - Use subagents liberally to keep main context window clean
 - Offload research, exploration, and parallel analysis to subagents
 - For complex problems, throw more compute at it via subagents
