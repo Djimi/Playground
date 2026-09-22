@@ -11,6 +11,7 @@
       <header class="map-header">
         <p class="eyebrow">Sofia, Bulgaria</p>
         <h1 id="area-name" aria-live="polite">Hover over an area</h1>
+        <p id="map-status" class="map-status" role="status" aria-live="polite" aria-atomic="true" hidden></p>
         <button id="back-button" class="map-back" type="button" hidden>Back</button>
       </header>
       <div id="map" aria-label="Interactive map of Sofia playgrounds and areas"></div>
@@ -18,6 +19,7 @@
         id="playground-details"
         class="playground-details"
         role="dialog"
+        aria-modal="true"
         aria-labelledby="playground-details-title"
         hidden
       >

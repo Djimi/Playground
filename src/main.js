@@ -77,10 +77,11 @@ const CAPABILITY_LABELS = {
   SWING: "Swing",
 };
 
-const map = L.map("map", { zoomControl: true }).setView(SOFIA_CENTER, 12);
+const mapElement = document.querySelector("#map");
+const map = L.map(mapElement, { zoomControl: true }).setView(SOFIA_CENTER, 12);
 map.createPane("areas").style.zIndex = 400;
 map.createPane("playgrounds").style.zIndex = 450;
-new ResizeObserver(() => map.invalidateSize()).observe(document.querySelector("#map"));
+new ResizeObserver(() => map.invalidateSize()).observe(mapElement);
 
 L.tileLayer(TILE_URL, {
   attribution: TILE_ATTRIBUTION,
@@ -88,12 +89,19 @@ L.tileLayer(TILE_URL, {
 }).addTo(map);
 
 const areaName = document.querySelector("#area-name");
+const mapHeader = document.querySelector(".map-header");
+const mapStatus = document.querySelector("#map-status");
 const backButton = document.querySelector("#back-button");
 const details = document.querySelector("#playground-details");
 const detailsClose = document.querySelector("#details-close");
 const detailsTitle = document.querySelector("#playground-details-title");
 const detailsContent = document.querySelector("#playground-details-content");
 const playgrounds = L.layerGroup().addTo(map);
+const layerStatus = {
+  neighborhoods: "loading",
+  destinations: "loading",
+  playgrounds: "loading",
+};
 let selectedPlayground;
 let selectedPlaygroundMarker;
 let playgroundsLoading = false;
@@ -102,9 +110,31 @@ let previewPopup;
 let previewMarker;
 let detailsReturnFocus;
 let suppressFocusPreview = false;
+let hoveredArea;
+let focusedArea;
+let hoveredPlayground;
+let focusedPlayground;
 
 function showAreaName(name) {
   areaName.textContent = name ?? DEFAULT_LABEL;
+}
+
+function updateMapStatus() {
+  const loading = [];
+  if (layerStatus.playgrounds === "loading") loading.push("playgrounds");
+  if (layerStatus.neighborhoods === "loading") loading.push("neighborhood areas");
+  if (layerStatus.destinations === "loading") loading.push("destination areas");
+
+  const messages = loading.length ? [`Loading ${loading.join(", ")}…`] : [];
+  if (layerStatus.playgrounds === "empty") messages.push("No playgrounds are currently available.");
+  if (layerStatus.playgrounds === "error") messages.push("Playgrounds are unavailable.");
+  if (layerStatus.neighborhoods === "empty") messages.push("No neighborhood areas are currently available.");
+  if (layerStatus.neighborhoods === "error") messages.push("Neighborhood areas are unavailable.");
+  if (layerStatus.destinations === "empty") messages.push("No destination areas are currently available.");
+  if (layerStatus.destinations === "error") messages.push("Destination areas are unavailable.");
+
+  mapStatus.textContent = messages.join(" ");
+  mapStatus.hidden = messages.length === 0;
 }
 
 function updateBackButton() {
@@ -121,7 +151,7 @@ function updateMarkerStyle(marker) {
   marker.setStyle(markerStyle(marker));
 }
 
-function closePreview() {
+function closePreviewPopup() {
   if (previewPopup) {
     map.closePopup(previewPopup);
     previewPopup = undefined;
@@ -131,16 +161,72 @@ function closePreview() {
   if (marker) updateMarkerStyle(marker);
 }
 
+function syncAreaPreview() {
+  const active = focusedArea ?? hoveredArea;
+  areas.eachLayer((layer) => {
+    if (layer === active?.layer) layer.setStyle(HOVER_STYLE);
+    else areas.resetStyle(layer);
+  });
+  showAreaName(active?.name);
+}
+
+function syncPlaygroundPreview() {
+  if (selectedPlayground) {
+    closePreviewPopup();
+    return;
+  }
+
+  const active = focusedPlayground ?? hoveredPlayground;
+  if (!active) {
+    closePreviewPopup();
+    return;
+  }
+  if (previewMarker === active.marker && previewPopup) {
+    updateMarkerStyle(active.marker);
+    return;
+  }
+
+  closePreviewPopup();
+  previewMarker = active.marker;
+  updateMarkerStyle(active.marker);
+  previewPopup = L.popup({
+    autoPan: true,
+    autoPanPaddingTopLeft: [16, 128],
+    autoPanPaddingBottomRight: [16, 16],
+    keepInView: true,
+    animate: false,
+    closeButton: false,
+    className: "playground-preview-popup",
+    offset: [0, -12],
+  })
+    .setLatLng(active.marker.getLatLng())
+    .setContent(playgroundPreview(active.playground))
+    .openOn(map);
+}
+
+function clearPlaygroundPreview() {
+  hoveredPlayground = undefined;
+  focusedPlayground = undefined;
+  closePreviewPopup();
+}
+
+function setDetailsModalOpen(open) {
+  details.hidden = !open;
+  mapElement.inert = open;
+  mapHeader.inert = open;
+}
+
 function closeDetails({ restoreFocus = true } = {}) {
   detailRequest?.abort();
   detailRequest = undefined;
   const focusTarget = detailsReturnFocus;
   const refreshedFocusTarget = selectedPlaygroundMarker?.getElement();
+  clearPlaygroundPreview();
   detailsReturnFocus = undefined;
   selectedPlaygroundMarker = undefined;
   selectedPlayground = undefined;
   for (const marker of playgrounds.getLayers()) updateMarkerStyle(marker);
-  details.hidden = true;
+  setDetailsModalOpen(false);
   detailsContent.replaceChildren();
   updateBackButton();
   if (!restoreFocus) return;
@@ -166,17 +252,7 @@ function activateArea(layer) {
 }
 
 function onEachArea(feature, layer) {
-  let focused = false;
-  let hovered = false;
-  const preview = () => {
-    layer.setStyle(HOVER_STYLE);
-    showAreaName(feature.properties.name);
-  };
-  const endPreview = () => {
-    if (hovered || focused) return;
-    areas.resetStyle(layer);
-    showAreaName();
-  };
+  const area = { layer, name: feature.properties.name };
   layer.on({
     add() {
       const element = layer.getElement();
@@ -184,21 +260,21 @@ function onEachArea(feature, layer) {
       element?.setAttribute("role", "button");
       element?.setAttribute("aria-label", `Select ${feature.properties.name}`);
       element?.addEventListener("focus", () => {
-        focused = true;
-        preview();
+        focusedArea = area;
+        syncAreaPreview();
       });
       element?.addEventListener("blur", () => {
-        focused = false;
-        endPreview();
+        if (focusedArea?.layer === layer) focusedArea = undefined;
+        syncAreaPreview();
       });
     },
     mouseover() {
-      hovered = true;
-      preview();
+      hoveredArea = area;
+      syncAreaPreview();
     },
     mouseout() {
-      hovered = false;
-      endPreview();
+      if (hoveredArea?.layer === layer) hoveredArea = undefined;
+      syncAreaPreview();
     },
     click() {
       activateArea(layer);
@@ -223,17 +299,24 @@ const areas = L.geoJSON(null, {
   onEachFeature: onEachArea,
 }).addTo(map);
 
-function addAreaData(url, fitMap = false) {
+function addAreaData(url, statusKey, fitMap = false) {
   return fetch(url)
     .then((response) => {
       if (!response.ok) throw new Error(`${url} failed: ${response.status}`);
       return response.json();
     })
     .then((data) => {
+      const featureCount = Array.isArray(data.features) ? data.features.length : 0;
       areas.addData(data);
-      if (fitMap) map.fitBounds(areas.getBounds(), { padding: [16, 16] });
+      layerStatus[statusKey] = featureCount ? "ready" : "empty";
+      updateMapStatus();
+      if (fitMap && featureCount) map.fitBounds(areas.getBounds(), { padding: [16, 16] });
     })
-    .catch((error) => console.error(error));
+    .catch((error) => {
+      layerStatus[statusKey] = "error";
+      updateMapStatus();
+      console.error(error);
+    });
 }
 
 function capabilityLabel(value) {
@@ -265,18 +348,24 @@ function image(url, alt, className) {
   element.alt = alt;
   element.loading = "lazy";
   if (className) element.className = className;
-  element.addEventListener("error", () => element.remove());
+  element.addEventListener("error", () => {
+    const fallback = document.createElement("div");
+    fallback.className = [className, "photo-unavailable"].filter(Boolean).join(" ");
+    fallback.textContent = "Photo unavailable";
+    element.replaceWith(fallback);
+  });
   return element;
 }
 
 function playgroundPreview(playground) {
   const content = document.createElement("article");
   content.className = "playground-preview";
+  const label = playground.name ?? "Unnamed playground";
   if (playground.photoUrls?.[0]) {
-    content.append(image(playground.photoUrls[0], "", "preview-photo"));
+    content.append(image(playground.photoUrls[0], `${label} photo`, "preview-photo"));
   }
   const title = document.createElement("strong");
-  title.textContent = playground.name ?? "Unnamed playground";
+  title.textContent = label;
   content.append(title);
 
   const age = document.createElement("p");
@@ -293,22 +382,6 @@ function playgroundPreview(playground) {
   return content;
 }
 
-function showPreview(playground, marker) {
-  if (selectedPlayground) return;
-  closePreview();
-  previewMarker = marker;
-  updateMarkerStyle(marker);
-  previewPopup = L.popup({
-    autoPan: false,
-    closeButton: false,
-    className: "playground-preview-popup",
-    offset: [0, -12],
-  })
-    .setLatLng(marker.getLatLng())
-    .setContent(playgroundPreview(playground))
-    .openOn(map);
-}
-
 function renderDetails(playground) {
   detailsContent.replaceChildren();
   if (!playground) {
@@ -318,12 +391,13 @@ function renderDetails(playground) {
     return;
   }
 
-  detailsTitle.textContent = playground.name ?? "Unnamed playground";
+  const label = playground.name ?? "Unnamed playground";
+  detailsTitle.textContent = label;
 
   const gallery = document.createElement("div");
   gallery.className = "playground-gallery";
   if (playground.photoUrls?.length) {
-    for (const url of playground.photoUrls) gallery.append(image(url, "Playground", "detail-photo"));
+    for (const url of playground.photoUrls) gallery.append(image(url, `${label} photo`, "detail-photo"));
   } else {
     const empty = document.createElement("p");
     empty.textContent = "No photos recorded";
@@ -378,16 +452,15 @@ function renderDetails(playground) {
 }
 
 async function openDetails(summary, marker) {
-  closePreview();
-  if (selectedPlaygroundMarker && selectedPlaygroundMarker !== marker) {
-    updateMarkerStyle(selectedPlaygroundMarker);
-  }
+  const previousMarker = selectedPlaygroundMarker;
+  clearPlaygroundPreview();
   selectedPlayground = summary;
   selectedPlaygroundMarker = marker;
+  if (previousMarker && previousMarker !== marker) updateMarkerStyle(previousMarker);
   detailsReturnFocus = marker.getElement();
   updateMarkerStyle(marker);
   updateBackButton();
-  details.hidden = false;
+  setDetailsModalOpen(true);
   detailsClose.focus();
   detailsTitle.textContent = summary.name ?? "Playground details";
   detailsContent.replaceChildren();
@@ -422,7 +495,7 @@ async function openDetails(summary, marker) {
 }
 
 function renderPlaygrounds(items) {
-  closePreview();
+  clearPlaygroundPreview();
   playgrounds.clearLayers();
   for (const playground of items) {
     const label = playground.name ?? "Unnamed playground";
@@ -431,8 +504,14 @@ function renderPlaygrounds(items) {
       { ...DEFAULT_PIN_STYLE, pane: "playgrounds", bubblingMouseEvents: false },
     ).addTo(playgrounds);
     marker.on({
-      mouseover: () => showPreview(playground, marker),
-      mouseout: closePreview,
+      mouseover: () => {
+        hoveredPlayground = { playground, marker };
+        syncPlaygroundPreview();
+      },
+      mouseout: () => {
+        if (hoveredPlayground?.marker === marker) hoveredPlayground = undefined;
+        syncPlaygroundPreview();
+      },
       click: ({ originalEvent }) => {
         L.DomEvent.stopPropagation(originalEvent);
         openDetails(playground, marker);
@@ -443,9 +522,14 @@ function renderPlaygrounds(items) {
     element?.setAttribute("role", "button");
     element?.setAttribute("aria-label", `Open details for ${label}`);
     element?.addEventListener("focus", () => {
-      if (!suppressFocusPreview) showPreview(playground, marker);
+      if (suppressFocusPreview) return;
+      focusedPlayground = { playground, marker };
+      syncPlaygroundPreview();
     });
-    element?.addEventListener("blur", closePreview);
+    element?.addEventListener("blur", () => {
+      if (focusedPlayground?.marker === marker) focusedPlayground = undefined;
+      syncPlaygroundPreview();
+    });
     element?.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
@@ -461,6 +545,8 @@ function renderPlaygrounds(items) {
 async function loadPlaygrounds() {
   if (playgroundsLoading) return;
   playgroundsLoading = true;
+  layerStatus.playgrounds = "loading";
+  updateMapStatus();
   try {
     const items = [];
     for (let offset = 0; ; offset += PAGE_SIZE) {
@@ -482,8 +568,12 @@ async function loadPlaygrounds() {
       // ponytail: offset pages can shift during an import; use cursors if imports become frequent.
     }
     renderPlaygrounds(items);
+    layerStatus.playgrounds = items.length ? "ready" : "empty";
+    updateMapStatus();
   } catch (error) {
     playgrounds.clearLayers();
+    layerStatus.playgrounds = "error";
+    updateMapStatus();
     console.error("Playgrounds unavailable", error);
   } finally {
     playgroundsLoading = false;
@@ -492,13 +582,37 @@ async function loadPlaygrounds() {
 
 backButton.addEventListener("click", goBack);
 detailsClose.addEventListener("click", goBack);
+details.addEventListener("keydown", (event) => {
+  if (event.key !== "Tab") return;
+  const focusable = [...details.querySelectorAll("button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])")];
+  if (!focusable.length) {
+    event.preventDefault();
+    detailsClose.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") goBack();
+  if (event.key === "Escape" && selectedPlayground) {
+    event.preventDefault();
+    closeDetails();
+  }
+}, true);
+document.addEventListener("click", (event) => {
+  if (selectedPlayground && !details.contains(event.target)) closeDetails({ restoreFocus: false });
 });
 map.on("click", () => {
   if (selectedPlayground) closeDetails({ restoreFocus: false });
 });
-addAreaData("/data/sofia-neighborhoods.geojson", true).then(() =>
-  addAreaData("/data/sofia-discovery-areas.geojson"),
-);
+updateMapStatus();
+addAreaData("/data/sofia-neighborhoods.geojson", "neighborhoods", true);
+addAreaData("/data/sofia-discovery-areas.geojson", "destinations");
 loadPlaygrounds();
