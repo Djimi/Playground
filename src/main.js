@@ -10,8 +10,8 @@ const TILE_ATTRIBUTION =
 const DEFAULT_LABEL = "Hover over an area";
 const PAGE_SIZE = 500;
 const PLAYGROUNDS_QUERY = `
-  query VisiblePlaygrounds($bounds: BoundsInput!, $limit: Int!, $offset: Int!) {
-    playgrounds(filter: { bounds: $bounds }, limit: $limit, offset: $offset) {
+  query AllPlaygrounds($limit: Int!, $offset: Int!) {
+    playgrounds(limit: $limit, offset: $offset) {
       id
       name
       location { longitude latitude }
@@ -96,11 +96,12 @@ const detailsContent = document.querySelector("#playground-details-content");
 const playgrounds = L.layerGroup().addTo(map);
 let selectedPlayground;
 let selectedPlaygroundMarker;
-let playgroundRequest;
+let playgroundsLoading = false;
 let detailRequest;
 let previewPopup;
 let previewMarker;
 let detailsReturnFocus;
+let suppressFocusPreview = false;
 
 function showAreaName(name) {
   areaName.textContent = name ?? DEFAULT_LABEL;
@@ -131,7 +132,7 @@ function closePreview() {
   }
 }
 
-function closeDetails() {
+function closeDetails({ restoreFocus = true } = {}) {
   detailRequest?.abort();
   detailRequest = undefined;
   const focusTarget = detailsReturnFocus;
@@ -143,8 +144,12 @@ function closeDetails() {
   details.hidden = true;
   detailsContent.replaceChildren();
   updateBackButton();
-  if (focusTarget?.isConnected) focusTarget.focus();
-  else if (refreshedFocusTarget?.isConnected) refreshedFocusTarget.focus();
+  if (!restoreFocus) return;
+  const target = focusTarget?.isConnected ? focusTarget : refreshedFocusTarget;
+  if (!target?.isConnected) return;
+  suppressFocusPreview = true;
+  target.focus();
+  suppressFocusPreview = false;
 }
 
 function goBack() {
@@ -155,7 +160,7 @@ function goBack() {
 
 function activateArea(layer) {
   if (selectedPlayground) {
-    closeDetails();
+    closeDetails({ restoreFocus: false });
     return;
   }
   map.fitBounds(layer.getBounds(), { maxZoom: 16, padding: [40, 40] });
@@ -198,6 +203,7 @@ function onEachArea(feature, layer) {
     },
     click() {
       activateArea(layer);
+      layer.getElement()?.blur();
     },
     keydown({ originalEvent }) {
       if (originalEvent.key !== "Enter" && originalEvent.key !== " ") return;
@@ -437,7 +443,9 @@ function renderPlaygrounds(items) {
     element?.setAttribute("tabindex", "0");
     element?.setAttribute("role", "button");
     element?.setAttribute("aria-label", `Open details for ${label}`);
-    element?.addEventListener("focus", () => showPreview(playground, marker));
+    element?.addEventListener("focus", () => {
+      if (!suppressFocusPreview) showPreview(playground, marker);
+    });
     element?.addEventListener("blur", closePreview);
     element?.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
@@ -452,25 +460,17 @@ function renderPlaygrounds(items) {
 }
 
 async function loadPlaygrounds() {
-  playgroundRequest?.abort();
-  const request = new AbortController();
-  playgroundRequest = request;
-  const bounds = map.getBounds();
-  const graphqlBounds = {
-    southWest: { longitude: bounds.getWest(), latitude: bounds.getSouth() },
-    northEast: { longitude: bounds.getEast(), latitude: bounds.getNorth() },
-  };
-
+  if (playgroundsLoading) return;
+  playgroundsLoading = true;
   try {
     const items = [];
     for (let offset = 0; ; offset += PAGE_SIZE) {
       const response = await fetch(API_URL, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        signal: request.signal,
         body: JSON.stringify({
           query: PLAYGROUNDS_QUERY,
-          variables: { bounds: graphqlBounds, limit: PAGE_SIZE, offset },
+          variables: { limit: PAGE_SIZE, offset },
         }),
       });
       const result = await response.json();
@@ -482,11 +482,12 @@ async function loadPlaygrounds() {
       if (page.length < PAGE_SIZE) break;
       // ponytail: offset pages can shift during an import; use cursors if imports become frequent.
     }
-    if (playgroundRequest === request) renderPlaygrounds(items);
+    renderPlaygrounds(items);
   } catch (error) {
-    if (error.name === "AbortError") return;
-    if (playgroundRequest === request) playgrounds.clearLayers();
+    playgrounds.clearLayers();
     console.error("Playgrounds unavailable", error);
+  } finally {
+    playgroundsLoading = false;
   }
 }
 
@@ -495,9 +496,8 @@ detailsClose.addEventListener("click", goBack);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") goBack();
 });
-map.on("moveend", loadPlaygrounds);
 map.on("click", () => {
-  if (selectedPlayground) closeDetails();
+  if (selectedPlayground) closeDetails({ restoreFocus: false });
 });
 addAreaData("/data/sofia-neighborhoods.geojson", true).then(() =>
   addAreaData("/data/sofia-discovery-areas.geojson"),

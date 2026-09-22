@@ -58,7 +58,7 @@ The system SHALL present every displayed neighborhood name in a curated Latin-sc
 - **THEN** it includes `Nadezhda 1`, `Nadezhda 2`, `Nadezhda 3`, and `Nadezhda 4` as separately named neighborhoods
 
 ### Requirement: Select a neighborhood
-The system SHALL let a visitor activate a neighborhood by tapping, clicking, or keyboard activation, fit the map to its polygon, and keep no persistent neighborhood-selection styling after activation.
+The system SHALL let a visitor activate a neighborhood by tapping, clicking, or keyboard activation, fit the map to its polygon, and keep no persistent neighborhood-selection styling after activation. After pointer activation, preview styling SHALL follow the pointer only.
 
 #### Scenario: Visitor selects a neighborhood
 - **WHEN** a visitor taps, clicks, or keyboard-activates a neighborhood polygon
@@ -69,6 +69,11 @@ The system SHALL let a visitor activate a neighborhood by tapping, clicking, or 
 - **WHEN** a visitor activates one neighborhood and then another
 - **THEN** each activation fits its own polygon
 - **AND** neither polygon remains selected after pointer preview ends
+
+#### Scenario: Visitor previews another area after pointer activation
+- **WHEN** a visitor pointer-activates one area polygon and then points at another area
+- **THEN** only the hovered area receives preview styling
+- **AND** the activated polygon shows no preview styling once the pointer leaves it
 
 ### Requirement: Select named family destinations
 The system SHALL display selectable vector boundaries for South Park and Sofia Zoo separately from similarly named neighborhoods.
@@ -101,12 +106,16 @@ The system SHALL display the hovered or keyboard-focused area name in a prominen
 - **THEN** the destination polygon receives preview styling
 - **AND** its name appears in the map heading
 
-### Requirement: Display playground pins
-The system SHALL display every playground returned for the visible map bounds as an interactive pin and refresh pins after the visible bounds change. If the current visible-bounds request fails, the system SHALL remove pins from the previous bounds rather than leave stale playground data displayed.
+### Requirement: Display every playground pin
+The system SHALL display every playground in the Sofia catalog as an interactive pin, independent of the visible map bounds and zoom level, SHALL load the catalog once per page load, and SHALL keep the pins displayed while the visitor pans or zooms. If the catalog request fails, the system SHALL display no playground pins rather than stale or partial playground data.
 
-#### Scenario: Visitor zooms into an area
-- **WHEN** the map finishes moving or zooming
-- **THEN** playground pins within the visible bounds are displayed above area polygons
+#### Scenario: Visitor opens the map
+- **WHEN** the map loads
+- **THEN** every playground in the catalog is displayed as an interactive pin above the area polygons
+
+#### Scenario: Visitor pans and zooms
+- **WHEN** a visitor pans or zooms the map
+- **THEN** every playground pin remains displayed without a new catalog request
 
 #### Scenario: Visitor opens a playground pin
 - **WHEN** a visitor clicks, taps, or keyboard-opens a playground pin
@@ -116,10 +125,10 @@ The system SHALL display every playground returned for the visible map bounds as
 - **WHEN** a playground pin appears on the map
 - **THEN** its default appearance is visually distinct from area preview and selected-playground styling
 
-#### Scenario: Visible-bounds refresh fails
-- **WHEN** the current playground request fails after pins from an earlier bounds request were displayed
-- **THEN** the earlier pins are removed
-- **AND** the map does not present those pins as current results
+#### Scenario: Catalog request fails
+- **WHEN** loading the playground catalog fails or returns an error
+- **THEN** no playground pins are displayed
+- **AND** the map does not present partial or stale playground results
 
 ### Requirement: Preview playgrounds from the map
 The system SHALL let a visitor preview a playground without first selecting or zooming into its neighborhood, SHALL visibly distinguish the previewed playground pin, and SHALL allow pointer activation of the previewed pin to open and keep its details visible.
@@ -177,13 +186,14 @@ The system SHALL let a visitor open a selected playground's details from its map
 - **THEN** focus returns to the refreshed pin for that playground when it remains in the current results
 
 ### Requirement: Leave focused map states predictably
-The system SHALL provide a visible Back control and keyboard Escape behavior that leave open playground details without changing the map viewport.
+The system SHALL provide a visible Back control and keyboard Escape behavior that leave open playground details without changing the map viewport. Closing details SHALL clear the selected playground without reopening its compact preview, and clicking or tapping the map SHALL not focus or preview the pin that was selected.
 
 #### Scenario: Visitor leaves playground details
 - **WHEN** playground details are open and the visitor activates Back or presses `Escape`
 - **THEN** the system closes the details and clears the selected playground
 - **AND** the map viewport remains unchanged
 - **AND** focus returns to the activating playground pin when it remains available
+- **AND** the compact playground preview does not reopen through the restored focus
 
 #### Scenario: Visitor leaves neighborhood focus
 - **WHEN** no playground details are open and the visitor activates Back or presses `Escape`
@@ -194,6 +204,7 @@ The system SHALL provide a visible Back control and keyboard Escape behavior tha
 - **WHEN** playground details are open and the visitor clicks or taps any map position
 - **THEN** the system closes the details and clears the selected playground
 - **AND** that input does not activate an area polygon beneath it
+- **AND** the previously selected playground pin does not receive focus, preview styling, or a compact preview
 
 #### Scenario: Visitor activates an area after closing details
 - **WHEN** playground details were closed by a map click or tap

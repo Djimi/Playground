@@ -47,14 +47,15 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | MAP-003 | High | Pan the map, then zoom in and out. | Map moves and scales normally; polygon boundaries stay aligned. | Main session and subagent review |
 | MAP-004 | High | Inspect the map corner. | Leaflet and OpenStreetMap attribution remain visible and usable. | Main session and subagent review |
 | MAP-005 | Medium | Resize the browser after the map loads. | Map fills the new viewport without blank or stale tile regions. | Main session regression check |
-| MAP-006 | High | Start the API with imported data, then pan or zoom. | Playground pins refresh to match visible bounds and remain above area polygons. | Main session and source review |
+| MAP-006 | High | Start the API with imported data, open the application, then pan and zoom. | Every imported playground is displayed as a pin above area polygons; pins stay visible after panning and zooming with no further playground requests. | All-pins spec and browser network check |
+| MAP-007 | High | Start with a fresh database and skip the import (or clear the `playgrounds` table), then open the application. | No playground pins render; the map, neighborhood polygons, controls, and area previews stay usable with no console errors. | All-pins spec and browser check |
 
 ## Pointer Selection and Hover
 
 | ID | Priority | Test steps | Expected result | Coverage source |
 | --- | --- | --- | --- | --- |
-| POINTER-001 | High | Click or tap Lozenets. | Map fits Lozenets; no area remains selected after the pointer leaves. | Main session review |
-| POINTER-002 | High | Click Lozenets, then Mladost 3. | Each click fits its own bounds; neither area remains selected. | Main session review |
+| POINTER-001 | High | Click or tap Lozenets. | Map fits Lozenets; the highlight follows the pointer only, and the polygon returns to default styling once the pointer leaves. | Main session review |
+| POINTER-002 | High | Click Lozenets, then Mladost 3. | Each click fits its own bounds; after the second click only Mladost 3 shows hover styling while the pointer is over it, and Lozenets returns to default. | Main session review |
 | POINTER-003 | High | Hover an unselected neighborhood, South Park, or Sofia Zoo. | Hovered polygon receives a clearly visible highlight and its name appears in the large header. | User request |
 | POINTER-004 | High | Move pointer or keyboard focus away from an area. | Polygon returns to default styling and the header restores its default prompt. | User request |
 | POINTER-005 | Medium | Click an area, then hover South Park or Sofia Zoo and move away. | The destination preview is visible and clears after preview ends. | Hover regression follow-up |
@@ -75,16 +76,18 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | PLAYGROUND-007 | High | Open an incomplete playground detail. | Missing photos, age, equipment counts, ratings, and reviews are labeled as empty or unknown; no values are inferred. | Browser check and `src/main.js` |
 | PLAYGROUND-008 | High | Open details at 320 × 640 px. | Details fill the phone viewport, the Back control remains visible, and the page has no horizontal scrolling. | Browser check and responsive CSS |
 | PLAYGROUND-009 | Medium | Open details at 768 px and 1280 px widths. | Details remain usable beside or over the map; gallery, source link, and selected styling do not clip. | Browser check and responsive CSS |
-| PLAYGROUND-010 | High | Hover a playground pin, then click it while the compact preview is visible. | The details panel opens and remains visible; the selected pin uses orange styling. | Pointer activation regression check |
+| PLAYGROUND-010 | High | Hover a playground pin, then click it while the compact preview is visible. | The details panel opens and remains visible; the selected pin uses orange styling and no compact preview popup remains. | Pointer activation regression check |
 
 ## Focused Map Navigation
 
 | ID | Priority | Test steps | Expected result | Coverage source |
 | --- | --- | --- | --- | --- |
-| NAV-001 | High | Open playground details, then press Back. | Details close, pin selection clears, and the viewport does not move. | Browser check and `src/main.js` |
-| NAV-002 | High | Open playground details, click an area, then click that area again. | First input closes details only; second fits the area bounds. | Browser check and `src/main.js` |
-| NAV-003 | High | Open playground details, then press Escape. | Details close, pin selection clears, and the viewport does not move. | Browser check and `src/main.js` |
+| NAV-001 | High | Open playground details, then press Back. | Details close, pin selection clears, the viewport does not move, and the compact preview does not reopen through the restored pin focus. | Browser check and `src/main.js` |
+| NAV-002 | High | Open playground details, click an area, then click that area again. | First input closes details only without focusing or previewing the pin; second fits the area bounds without persistent styling. | Browser check and `src/main.js` |
+| NAV-003 | High | Open playground details, then press Escape. | Details close, pin selection clears, the viewport does not move, and the compact preview does not reopen through the restored pin focus. | Browser check and `src/main.js` |
 | NAV-004 | High | Press `Escape` in the default state. | Nothing changes; native Leaflet wheel, touch, keyboard, and zoom-control behavior remains available without `Ctrl`. | Browser check and Leaflet behavior |
+| NAV-005 | High | Open playground details, then click or tap empty map space. | Details close and the pin selection clears; the pin returns to default blue with no focus ring and no compact preview. | User report and `src/main.js` |
+| NAV-006 | High | Open playground details, then click or tap a neighborhood polygon. | Details close and the pin selection clears with no pin focus or preview; the first polygon input does not fit bounds, and the polygon shows no persistent styling once the pointer leaves. | User report and `src/main.js` |
 
 ## Keyboard and Accessibility
 
@@ -105,6 +108,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | RESPONSIVE-002 | High | Set viewport width to 768 px and interact with the map. | Map fills viewport; controls and header do not clip or overlap critical content. | Main session and builder subagent |
 | RESPONSIVE-003 | High | Test at 1280 × 800 px or larger. | Map fills viewport; header stays centered; controls and attribution remain visible. | Luna and builder subagents |
 | RESPONSIVE-004 | Medium | At each viewport, click or keyboard-activate two neighborhoods and preview a park. | Bounds fitting and transient previews work consistently at every size. | Main session review |
+| RESPONSIVE-005 | High | With the real imported catalog, pan and zoom at 320 × 640 px and watch the map frame. | The map follows the gesture and repaints pins and polygons after each gesture; no blank or frozen frame, no "page unresponsive" prompt, and no horizontal scrolling. | Performance follow-up and browser check |
 
 ## Console and Failure Checks
 
@@ -112,7 +116,8 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | --- | --- | --- | --- | --- |
 | CONSOLE-001 | High | Load, pan, zoom, hover, click, and use keyboard selection while watching console. | No uncaught errors or failed local asset requests. | Builder subagent |
 | FAILURE-001 | Medium | Temporarily make one GeoJSON request fail in a test environment. | Other polygon data remains usable and the failed request is logged. | Source review |
-| FAILURE-002 | Medium | Stop the API, then load and use the map. | Area polygons remain usable; missing playground pins produce no uncaught error. | Source and browser review |
+| FAILURE-002 | Medium | Stop the API, then load and use the map. | Area polygons remain usable and no playground pins are displayed; the failure is logged without an uncaught error. | All-pins failure scenario and browser review |
+| FAILURE-003 | Medium | Block the `/graphql` catalog request in browser DevTools (or return an error for it), then reload the map. | No playground pins are displayed, no partial or stale pins remain from earlier renders, and the failure is logged without an uncaught error. | All-pins failure scenario and browser check |
 
 ## Session Findings Covered
 
