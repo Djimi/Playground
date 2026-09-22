@@ -10,6 +10,25 @@ Fix: keep `© OpenStreetMap contributors` linked to the copyright page. Keep der
 
 Verify the attribution link in the map and [public/data/README.md](../../public/data/README.md).
 
+## `out center geom` returns only the last geometry mode
+
+Symptom: the importer fails with `way/<id> is missing center` although the
+Overpass response contains `bounds` and full `geometry`.
+
+Cause: `center`, `bounds`, `bb`, and `geom` are alternative geometry output
+modes, not additive ones. Combined in a single `out` statement, only the last
+mode is emitted. `out meta center geom;` therefore returns `geometry` and
+`bounds` but no `center` (verified on Overpass 0.7.62.7 and 0.7.62.11).
+
+Fix: parse `bounds` as well and derive the fallback point from its center.
+For ways and relations, the Overpass `center` is the center of the bounding
+box, so the two are equivalent. `backend/src/importer.rs` does this in
+`element_point`. Requesting each geometry mode in a separate response also
+works but duplicates elements.
+
+Verify: `cargo test importer::tests` covers `falls_back_to_bounds_center...`;
+then run `docker compose run --rm api import-playgrounds`.
+
 ## Public APIs are rate-limited
 
 Symptom: Overpass or Nominatim requests return 406, 429, 504, or intermittent failures.

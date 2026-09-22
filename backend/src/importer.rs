@@ -75,6 +75,7 @@ struct Element {
     lat: Option<f64>,
     lon: Option<f64>,
     center: Option<RawPoint>,
+    bounds: Option<Bounds>,
     geometry: Option<Vec<RawPoint>>,
     members: Option<Vec<Member>>,
     #[serde(default)]
@@ -86,6 +87,23 @@ struct Element {
 struct RawPoint {
     lat: f64,
     lon: f64,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct Bounds {
+    minlat: f64,
+    minlon: f64,
+    maxlat: f64,
+    maxlon: f64,
+}
+
+impl Bounds {
+    fn center(self) -> RawPoint {
+        RawPoint {
+            lat: (self.minlat + self.maxlat) / 2.0,
+            lon: (self.minlon + self.maxlon) / 2.0,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -447,9 +465,18 @@ fn element_point(element: &Element) -> Result<Point<f64>> {
             (Some(lon), Some(lat)) => RawPoint { lon, lat },
             _ => bail!("node/{} is missing coordinates", element.id),
         },
+        // Overpass omits `center` when `out ... geom` is requested; its `bounds`
+        // center is the same point, so use it as the fallback.
         "way" | "relation" => element
             .center
-            .ok_or_else(|| anyhow!("{}/{} is missing center", element.kind, element.id))?,
+            .or_else(|| element.bounds.map(Bounds::center))
+            .ok_or_else(|| {
+                anyhow!(
+                    "{}/{} is missing center and bounds",
+                    element.kind,
+                    element.id
+                )
+            })?,
         _ => bail!("unsupported OpenStreetMap element type {}", element.kind),
     };
     let point = Point::new(raw.lon, raw.lat);
@@ -714,6 +741,31 @@ mod tests {
         );
         assert_eq!(playgrounds[1].id, "relation/8");
         assert_eq!(playgrounds[1].capabilities, ["climbing_frame"]);
+    }
+
+    #[test]
+    fn falls_back_to_bounds_center_when_overpass_omits_center() {
+        let playgrounds = normalize_overpass(
+            r#"{"elements":[
+              {"type":"way","id":30,
+               "bounds":{"minlat":42.0,"minlon":23.0,"maxlat":42.2,"maxlon":23.4},
+               "geometry":[{"lat":42.0,"lon":23.0},{"lat":42.0,"lon":23.4},{"lat":42.2,"lon":23.4},{"lat":42.2,"lon":23.0},{"lat":42.0,"lon":23.0}],
+               "tags":{"leisure":"playground"}},
+              {"type":"node","id":31,"lat":42.1,"lon":23.2,"tags":{"playground":"swing"}}
+            ]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(playgrounds.len(), 1);
+        assert_eq!(
+            (playgrounds[0].longitude, playgrounds[0].latitude),
+            (23.2, 42.1)
+        );
+        assert_eq!(playgrounds[0].capabilities, ["swing"]);
+        assert_eq!(
+            playgrounds[0].equipment_counts,
+            BTreeMap::from([(String::from("swing"), 1)])
+        );
     }
 
     #[test]
