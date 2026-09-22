@@ -6,6 +6,8 @@ use geo::{Distance, Haversine, Point};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::commons::LicensedPhoto;
+
 pub const SOFIAPLAN_URL: &str = "https://api.sofiaplan.bg/datasets/5";
 pub const SOFIAPLAN_DATASET_PAGE: &str = "https://urbandata.sofia.bg/dataset/playgrounds";
 pub const SOFIAPLAN_OBSERVED_AT: &str = "2019-04-18T00:00:00Z";
@@ -49,6 +51,7 @@ pub struct SourcePlayground {
     pub values: BTreeMap<String, Value>,
     pub equipment: BTreeMap<String, Option<i32>>,
     pub commons_titles: Vec<String>,
+    pub photos: Vec<LicensedPhoto>,
     pub excluded_from_catalog: bool,
 }
 
@@ -209,6 +212,7 @@ fn normalize_sofiaplan_feature(feature: &Value, observed_at: DateTime<Utc>) -> R
         values,
         equipment,
         commons_titles: Vec::new(),
+        photos: Vec::new(),
         excluded_from_catalog: known(properties.get("new_label"))
             .and_then(Value::as_str)
             .is_some_and(|label| label.trim() == "не се показват на картата"),
@@ -366,6 +370,8 @@ pub struct CanonicalPlayground {
     pub primary_source: SourceKind,
     pub source_url: String,
     pub source_updated_at: Option<DateTime<Utc>>,
+    pub photo_urls: Vec<String>,
+    pub photos: Vec<LicensedPhoto>,
     pub source_values: Vec<SourceValue>,
 }
 
@@ -571,6 +577,14 @@ fn canonical_playground(
         source_updated_at: (primary.date_meaning != Some(DateMeaning::Observation))
             .then_some(primary.source_date)
             .flatten(),
+        photo_urls: sources
+            .iter()
+            .flat_map(|source| source.photos.iter().map(|photo| photo.url.clone()))
+            .collect(),
+        photos: sources
+            .iter()
+            .flat_map(|source| source.photos.iter().cloned())
+            .collect(),
         source_values: source_values(sources),
     }
 }
@@ -856,6 +870,7 @@ mod tests {
             values: BTreeMap::new(),
             equipment: BTreeMap::new(),
             commons_titles: Vec::new(),
+            photos: Vec::new(),
             excluded_from_catalog: false,
         }
     }

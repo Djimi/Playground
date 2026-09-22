@@ -453,6 +453,7 @@ fn normalize_root(element: &Element, raw_root: Value) -> Result<Root> {
                 .filter(|title| title.starts_with("File:"))
                 .map(|title| vec![title.to_owned()])
                 .unwrap_or_default(),
+            photos: Vec::new(),
             excluded_from_catalog: false,
         },
         area,
