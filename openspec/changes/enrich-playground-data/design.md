@@ -32,7 +32,7 @@ Alternative considered: separate commands or a background refresh service. That 
 
 ### 2. Separate current source rows from the canonical query model
 
-Add current source-record storage keyed by `(source, external_id)`, source-to-canonical links carrying match method and distance, field-level source values/history, and structured photo metadata. Keep the existing `playgrounds` table as the canonical query model, adding the typed fields needed by GraphQL and the UI. Store original normalized source JSON rather than discarding fields that are not currently displayed.
+Add current source-record storage keyed by `(source, external_id)`, source-to-canonical links carrying match method and distance, field-level source values/history, and structured photo metadata. Keep the existing `playgrounds` table as the canonical query model, adding the typed fields needed by GraphQL and the UI. Preserve existing OSM-backed canonical IDs unchanged; use the OSM `<type>/<id>` for matched and OSM-only records, and `sofiaplan/<nobekt_new>` for SofiaPlan-only records. Store original normalized source JSON rather than discarding fields that are not currently displayed.
 
 Alternative considered: merge source JSON directly into `playgrounds` or retain every import version. The former loses provenance; the latter is a historical data lake explicitly outside scope.
 
@@ -50,7 +50,7 @@ Alternative considered: source-priority-only or last-import-wins. Both hide conf
 
 ### 5. Treat Commons verification as a photo-level best effort
 
-Only direct Commons file references are resolved. A Commons response must provide a supported reusable licence, author, attribution, original file page, and usable URL. A failed lookup or unsupported licence omits only that photo and records an unavailable/rejected outcome; it does not abort an otherwise valid playground import. Nearby geotagged images are never inferred to depict a playground.
+Only direct Commons file references are resolved. A Commons response must provide a public-domain, CC0, CC BY, or CC BY-SA licence, author, attribution, original file page, and usable URL; NC, ND, non-free, missing, and unknown licences are rejected. A failed lookup or unsupported licence omits only that photo and records an unavailable/rejected outcome; it does not abort an otherwise valid playground import. Nearby geotagged images are never inferred to depict a playground.
 
 Alternative considered: fail the whole import on any photo error or attach nearby imagery. Either choice makes the catalog brittle or presents unverified content.
 

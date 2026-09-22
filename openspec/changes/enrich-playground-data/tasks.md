@@ -18,12 +18,12 @@
 
 ## 4. Conservative matching and merge
 
-- [ ] 4.1 Implement deterministic one-to-one spatial matching with a named 15-metre threshold, preserving unmatched and ambiguous records separately and retaining match evidence; verify 14.9 m, exactly 15.0 m, 15.1 m, and one-to-many cases.
+- [ ] 4.1 Implement deterministic one-to-one spatial matching with a named 15-metre threshold, preserving unmatched and ambiguous records separately and retaining match evidence; preserve existing OSM-backed canonical IDs, use OSM `<type>/<id>` for matched and OSM-only records, and use `sofiaplan/<nobekt_new>` for SofiaPlan-only records; verify 14.9 m, exactly 15.0 m, 15.1 m, and one-to-many cases.
 - [ ] 4.2 Implement canonical field selection by newest non-missing effective date with source-specific fallback, provenance/history, stable IDs, and explicit false/zero handling; verify merge fixtures and deterministic output ordering.
 
 ## 5. Licensed Wikimedia Commons photos
 
-- [ ] 5.1 Add direct Commons metadata resolution and parsing for approved reusable licences only, including normalized redirects, author/attribution text, original file page, and explicit rejection of unsafe or incomplete metadata; verify accepted/rejected fixture counts and HTML-free attribution.
+- [ ] 5.1 Add direct Commons metadata resolution and parsing that accepts only public-domain, CC0, CC BY, and CC BY-SA licences, rejects NC, ND, non-free, missing, and unknown licences, and retains normalized redirects, author/attribution text, and the original file page; verify accepted/rejected fixture counts and HTML-free attribution.
 - [ ] 5.2 Attach accepted structured photos to source and canonical records without failing the primary import on Commons errors; verify `cargo test --manifest-path backend/Cargo.toml commons::tests`.
 
 ## 6. Atomic catalog replacement

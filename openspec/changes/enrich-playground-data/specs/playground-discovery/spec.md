@@ -69,7 +69,7 @@ The system SHALL select the newest non-missing source value for each canonical f
 
 ### Requirement: Accept only verified reusable Commons photos
 
-The system SHALL accept a photo only when a source record directly references a Wikimedia Commons file and the Commons response supplies a supported reusable licence, author, attribution, and original file page; nearby or unverifiable photos SHALL NOT be attached automatically.
+The system SHALL accept a photo only when a source record directly references a Wikimedia Commons file and the Commons response supplies a public-domain, CC0, CC BY, or CC BY-SA licence, author, attribution, and original file page; NC, ND, non-free, missing, and unknown licences SHALL be rejected, and nearby or unverifiable photos SHALL NOT be attached automatically.
 
 #### Scenario: Accept a directly referenced reusable photo
 
