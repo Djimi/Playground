@@ -149,6 +149,76 @@ async fn enrichment_schema_keeps_current_sources_and_safe_defaults(pool: PgPool)
     .unwrap();
     assert_eq!(photos, json!([]));
     assert_eq!(values, json!([]));
+
+    assert!(sqlx::query(
+        "INSERT INTO playground_source_links (playground_id, source, external_id, match_method) VALUES ('missing-playground', 'sofiaplan', '06.129', 'unmatched')",
+    )
+    .execute(&pool)
+    .await
+    .is_err());
+    assert!(sqlx::query(
+        "INSERT INTO playground_source_links (playground_id, source, external_id, match_method) VALUES ('sofiaplan/06.129', 'sofiaplan', 'missing', 'unmatched')",
+    )
+    .execute(&pool)
+    .await
+    .is_err());
+    assert!(sqlx::query(
+        "INSERT INTO playgrounds (id, location, source_url, photos) VALUES ('invalid-photos', ST_SetSRID(ST_MakePoint(23.3444, 42.7070), 4326)::geography, 'https://example.test/invalid-photos', '{}'::jsonb)",
+    )
+    .execute(&pool)
+    .await
+    .is_err());
+    assert!(sqlx::query(
+        "INSERT INTO playgrounds (id, location, source_url, source_values) VALUES ('invalid-source-values', ST_SetSRID(ST_MakePoint(23.3444, 42.7070), 4326)::geography, 'https://example.test/invalid-source-values', '{}'::jsonb)",
+    )
+    .execute(&pool)
+    .await
+    .is_err());
+
+    sqlx::query("DELETE FROM source_playgrounds WHERE source = 'sofiaplan' AND external_id = '06.129'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (source_links,): (i64,) = sqlx::query_as(
+        "SELECT count(*)::bigint FROM playground_source_links WHERE source = 'sofiaplan' AND external_id = '06.129'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(source_links, 0);
+
+    sqlx::query(
+        r#"INSERT INTO source_playgrounds
+           (source, external_id, raw_data, location)
+           VALUES ('openstreetmap', 'node/1', '{}'::jsonb,
+                   ST_SetSRID(ST_MakePoint(23.3444, 42.7070), 4326)::geography)"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO playgrounds (id, location, source_url) VALUES ('openstreetmap/node/1', ST_SetSRID(ST_MakePoint(23.3444, 42.7070), 4326)::geography, 'https://www.openstreetmap.org/node/1')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO playground_source_links (playground_id, source, external_id, match_method) VALUES ('openstreetmap/node/1', 'openstreetmap', 'node/1', 'unmatched')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM playgrounds WHERE id = 'openstreetmap/node/1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (playground_links,): (i64,) = sqlx::query_as(
+        "SELECT count(*)::bigint FROM playground_source_links WHERE playground_id = 'openstreetmap/node/1'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(playground_links, 0);
 }
 
 #[sqlx::test(migrations = "./migrations")]
