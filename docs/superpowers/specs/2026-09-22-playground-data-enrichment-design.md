@@ -170,6 +170,8 @@ The importer validates both primary datasets before opening the replacement tran
 
 ## User interface
 
+The [approved popup and details mockup](assets/playground-popup-details-mockup.html) is the visual implementation reference. Its example values demonstrate hierarchy and states; imported source data supplies the real values.
+
 ### Compact pin popup
 
 - Licensed photo or `No photo yet`.
