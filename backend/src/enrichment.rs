@@ -572,20 +572,20 @@ fn canonical_playground(
     let mut capabilities = Vec::new();
     let mut equipment_counts = BTreeMap::new();
     for name in equipment_names {
-        let Some(winning) = selected_equipment_observation(&name, sources) else {
+        let Some((_, count)) = selected_equipment_observation(&name, sources) else {
             capabilities.push(name);
             continue;
         };
-        match winning.equipment.get(&name) {
-            Some(Some(count)) if *count > 0 => {
+        match count {
+            Some(count) if count > 0 => {
                 capabilities.push(name.clone());
-                equipment_counts.insert(name, *count);
+                equipment_counts.insert(name, count);
             }
-            Some(None) => capabilities.push(name),
-            Some(Some(_)) => {}
+            Some(_) => {}
             None => capabilities.push(name),
         }
     }
+    let (min_age, max_age) = selected_age_bounds(&id, sources);
 
     CanonicalPlayground {
         id,
@@ -594,8 +594,8 @@ fn canonical_playground(
         latitude: primary.latitude,
         capabilities,
         equipment_counts,
-        min_age: selected_i16("min_age", sources),
-        max_age: selected_i16("max_age", sources),
+        min_age,
+        max_age,
         address: selected_string("address", sources),
         surface: selected_string("surface", sources),
         fenced: selected_bool("fenced", sources),
@@ -660,9 +660,12 @@ fn source_values(sources: &[&SourcePlayground]) -> Vec<SourceValue> {
                 source_id: source.external_id.clone(),
                 date: source.source_date,
                 date_meaning: source.date_meaning,
-                selected: selected_equipment_observation(name, sources).is_some_and(|selected| {
-                    selected.source == source.source && selected.external_id == source.external_id
-                }),
+                selected: selected_equipment_observation(name, sources).is_some_and(
+                    |(selected, _)| {
+                        selected.source == source.source
+                            && selected.external_id == source.external_id
+                    },
+                ),
             });
         }
     }
@@ -695,12 +698,11 @@ fn selected_value<'a>(
 fn selected_equipment_observation<'a>(
     name: &str,
     sources: &[&'a SourcePlayground],
-) -> Option<&'a SourcePlayground> {
+) -> Option<(&'a SourcePlayground, Option<i32>)> {
     sources
         .iter()
-        .filter(|source| source.equipment.contains_key(name))
-        .copied()
-        .max_by(|left, right| compare_candidates("equipment", left, right))
+        .filter_map(|source| source.equipment.get(name).map(|count| (*source, *count)))
+        .max_by(|left, right| compare_candidates("equipment", left.0, right.0))
 }
 
 fn compare_candidates(
@@ -756,6 +758,21 @@ fn selected_string(field: &str, sources: &[&SourcePlayground]) -> Option<String>
 
 fn selected_i16(field: &str, sources: &[&SourcePlayground]) -> Option<i16> {
     selected_value(field, sources).and_then(|(_, value)| value.as_i64()?.try_into().ok())
+}
+
+fn selected_age_bounds(id: &str, sources: &[&SourcePlayground]) -> (Option<i16>, Option<i16>) {
+    let min_age = selected_i16("min_age", sources);
+    let max_age = selected_i16("max_age", sources);
+    if min_age.zip(max_age).is_some_and(|(min, max)| min > max) {
+        tracing::warn!(
+            playground_id = id,
+            min_age = ?min_age,
+            max_age = ?max_age,
+            "drop crossed cross-source age bounds"
+        );
+        return (None, None);
+    }
+    (min_age, max_age)
 }
 
 fn selected_bool(field: &str, sources: &[&SourcePlayground]) -> Option<bool> {
@@ -1151,6 +1168,73 @@ mod tests {
                 .iter()
                 .all(|link| link.external_id != "06.131")
         );
+    }
+
+    #[test]
+    fn merging_drops_crossed_age_bounds_and_warns() {
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(TestWriter(output.clone()))
+            .finish();
+
+        let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
+        osm.source_date = Some(
+            DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
+        osm.values.insert("min_age".into(), json!(12));
+
+        let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
+        sofia.source_date = Some(
+            DateTime::parse_from_rfc3339("2019-04-18T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
+        sofia.values.insert("max_age".into(), json!(5));
+
+        let matches = match_sources(std::slice::from_ref(&osm), std::slice::from_ref(&sofia));
+        let merged = tracing::subscriber::with_default(subscriber, || {
+            merge_catalog(&[osm], &[sofia], &matches)
+        });
+        let playground = &merged.playgrounds[0];
+
+        assert_eq!(playground.min_age, None);
+        assert_eq!(playground.max_age, None);
+        let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(
+            output.contains("drop crossed cross-source age bounds"),
+            "{output}"
+        );
+        assert!(output.contains("playground_id=\"node/1\""), "{output}");
+    }
+
+    #[test]
+    fn merging_drops_newer_max_age_crossing_older_min_age() {
+        let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
+        osm.source_date = Some(
+            DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
+        osm.values.insert("max_age".into(), json!(3));
+
+        let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
+        sofia.source_date = Some(
+            DateTime::parse_from_rfc3339("2019-04-18T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
+        sofia.values.insert("min_age".into(), json!(8));
+
+        let matches = match_sources(std::slice::from_ref(&osm), std::slice::from_ref(&sofia));
+        let merged = merge_catalog(&[osm], &[sofia], &matches);
+        let playground = &merged.playgrounds[0];
+
+        assert_eq!(playground.min_age, None);
+        assert_eq!(playground.max_age, None);
     }
 
     #[test]

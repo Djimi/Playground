@@ -593,10 +593,12 @@ fn normalize_root(element: &Element, raw_root: Value) -> Result<Root> {
             values,
             equipment,
             commons_titles: tag(element, "wikimedia_commons")
+                .into_iter()
+                .flat_map(|titles| titles.split(';'))
                 .map(str::trim)
                 .filter(|title| title.starts_with("File:"))
-                .map(|title| vec![title.to_owned()])
-                .unwrap_or_default(),
+                .map(str::to_owned)
+                .collect(),
             photos: Vec::new(),
             excluded_from_catalog: false,
         },
@@ -923,6 +925,16 @@ mod tests {
             playground.date_meaning,
             Some(crate::enrichment::DateMeaning::SourceUpdate)
         );
+    }
+
+    #[test]
+    fn splits_multiple_wikimedia_commons_titles_and_keeps_file_prefixes() {
+        let playgrounds = normalize_overpass(
+            r#"{"elements":[{"type":"node","id":9,"lat":42.7,"lon":23.3,"tags":{"leisure":"playground","wikimedia_commons":"File:A.jpg; File:B.jpg;https://example.test/C.jpg;Category:D"}}]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(playgrounds[0].commons_titles, ["File:A.jpg", "File:B.jpg"]);
     }
 
     #[test]
