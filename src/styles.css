@@ -117,7 +117,7 @@ h1 {
 
 .playground-preview-popup .leaflet-popup-content {
   margin: 0.65rem;
-  width: min(18rem, calc(100vw - 2rem)) !important;
+  width: min(18rem, calc(100vw - 3.5rem)) !important;
 }
 
 .playground-preview {

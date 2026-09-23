@@ -17,3 +17,5 @@
 - When mapping stored provenance, trace every value the producer emits, including JSON null for unknown equipment counts; test both detail and list GraphQL paths before rejecting a value as malformed.
 - For linked Commons photos, show both Artist and Credit when they differ; one field must not hide the other.
 - For a keyboard-actionable map popup, check actual pane tab order, route Tab from the focused marker to the popup action, and preserve a focus-owned popup while unrelated markers are hovered.
+- At narrow widths, account for Leaflet's popup wrapper and content margins when setting a viewport-based content width; document width alone does not reveal popup clipping.
+- Leaflet popup auto-pan can trigger marker mouseout without visitor pointer movement; keep pointer-only preview ownership until subsequent pointer motion settles or the popup is entered.

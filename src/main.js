@@ -105,6 +105,7 @@ let detailRequest;
 let previewPopup;
 let previewMarker;
 let previewSyncTimer;
+let previewAutoPanPending = false;
 let detailsReturnFocus;
 let suppressFocusPreview = false;
 let hoveredArea;
@@ -155,6 +156,7 @@ function closePreviewPopup() {
   }
   const marker = previewMarker;
   previewMarker = undefined;
+  previewAutoPanPending = false;
   if (marker) updateMarkerStyle(marker);
 }
 
@@ -183,6 +185,7 @@ function syncPlaygroundPreview() {
 
   const popupElement = previewPopup?.getElement();
   if (popupElement?.contains(document.activeElement)) return;
+  if (previewAutoPanPending) return;
   const active = focusedPlayground ?? hoveredPlayground;
   if (!active) {
     if (popupElement?.matches(":hover")) return;
@@ -212,9 +215,15 @@ function syncPlaygroundPreview() {
     .setContent(previewContent)
     .openOn(map);
   const openedPopupElement = previewPopup.getElement();
-  openedPopupElement.addEventListener("mouseenter", () => clearTimeout(previewSyncTimer));
+  openedPopupElement.addEventListener("mouseenter", () => {
+    previewAutoPanPending = false;
+    clearTimeout(previewSyncTimer);
+  });
   openedPopupElement.addEventListener("mouseleave", schedulePreviewSync);
-  openedPopupElement.addEventListener("focusin", () => clearTimeout(previewSyncTimer));
+  openedPopupElement.addEventListener("focusin", () => {
+    previewAutoPanPending = false;
+    clearTimeout(previewSyncTimer);
+  });
   openedPopupElement.addEventListener("focusout", schedulePreviewSync);
 }
 
@@ -225,6 +234,24 @@ function clearPlaygroundPreview() {
   focusedPlayground = undefined;
   closePreviewPopup();
 }
+
+map.on("autopanstart", () => {
+  if (previewMarker && !focusedPlayground) previewAutoPanPending = true;
+});
+mapElement.addEventListener("pointermove", () => {
+  if (!previewAutoPanPending) return;
+  clearTimeout(previewSyncTimer);
+  // ponytail: wait for pointer motion to settle; revisit if slow gap crossings still close the popup.
+  previewSyncTimer = setTimeout(() => {
+    previewAutoPanPending = false;
+    syncPlaygroundPreview();
+  }, 120);
+});
+mapElement.addEventListener("pointerleave", () => {
+  if (!previewAutoPanPending) return;
+  previewAutoPanPending = false;
+  schedulePreviewSync();
+});
 
 function setDetailsModalOpen(open) {
   details.hidden = !open;
