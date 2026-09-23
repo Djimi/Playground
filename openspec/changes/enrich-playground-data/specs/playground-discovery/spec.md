@@ -120,3 +120,20 @@ The system SHALL extend the read-only GraphQL playground results with nullable o
 - **WHEN** an existing client requests `photoUrls` or existing source metadata
 - **THEN** those fields remain available with their existing meaning
 - **AND** adding enriched fields does not require a breaking query change
+
+## MODIFIED Requirements
+
+### Requirement: Return stable playground details
+
+The system SHALL return a stable identifier, optional name, representative location, containing neighborhoods, recorded capabilities, optional age bounds, photo URLs, and applicable source metadata for each playground: OpenStreetMap source metadata for OpenStreetMap-backed playgrounds and the SofiaPlan dataset reference for SofiaPlan-only playgrounds.
+
+#### Scenario: Retrieve playground details
+
+- **WHEN** a client requests an existing playground by identifier
+- **THEN** the system returns all recorded discovery fields for that playground
+
+#### Scenario: Return incomplete source data honestly
+
+- **WHEN** a source lacks an optional field for a playground
+- **THEN** the API returns that field as `null` or an empty list as defined by the GraphQL schema
+- **AND** the system does not infer an unsupported value

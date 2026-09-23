@@ -8,6 +8,8 @@ import {
   formatNeighborhoods,
   formatPhotoCredit,
   selectedSourceValue,
+  displayedSources,
+  formatMunicipalStatus,
 } from "../src/playground-format.js";
 
 test("playground formatting: age bounds stay explicit", () => {
@@ -52,4 +54,19 @@ test("playground formatting: selected provenance is field-specific", () => {
 test("playground formatting: photo author and credit stay visible without identical duplication", () => {
   assert.equal(formatPhotoCredit({ author: "Photographer", attribution: "Publisher credit" }), "Photographer · Publisher credit");
   assert.equal(formatPhotoCredit({ author: "Photographer", attribution: "Photographer" }), "Photographer");
+});
+
+test("playground formatting: an empty linked source list falls back to the populated legacy source", () => {
+  const legacy = { id: "node/1", kind: "OPEN_STREET_MAP" };
+  const linked = [{ id: "openstreetmap/node/1" }, { id: "sofiaplan/06.129" }];
+  assert.deepEqual(displayedSources([], legacy), [legacy]);
+  assert.deepEqual(displayedSources(undefined, legacy), [legacy]);
+  assert.deepEqual(displayedSources(linked, legacy), linked);
+  assert.deepEqual(displayedSources([], null), []);
+});
+
+test("playground formatting: missing municipal status keeps an explicit unknown state", () => {
+  assert.equal(formatMunicipalStatus("Major repair"), "Major repair");
+  assert.equal(formatMunicipalStatus(null), "Municipal status unknown");
+  assert.equal(formatMunicipalStatus(undefined), "Municipal status unknown");
 });

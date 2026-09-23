@@ -1,7 +1,7 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./styles.css";
-import { formatAge, formatEquipment, formatKnown, formatNeighborhoods, formatPhotoCredit, formatSourceDate, selectedSourceValue } from "./playground-format.js";
+import { displayedSources, formatAge, formatEquipment, formatKnown, formatMunicipalStatus, formatNeighborhoods, formatPhotoCredit, formatSourceDate, selectedSourceValue } from "./playground-format.js";
 
 const SOFIA_CENTER = [42.6977, 23.3219];
 const API_URL = import.meta.env.VITE_API_URL ?? "/graphql";
@@ -453,8 +453,9 @@ function playgroundPreview(playground, marker) {
   chips.append(textElement("span", formatAge(playground.minAge, playground.maxAge), "playground-chip"));
   chips.append(textElement("span", formatEquipment(playground.equipment), "playground-chip"));
   content.append(chips);
-  const warning = historicalWarning(playground);
+  const warning = playground.municipalStatus != null ? historicalWarning(playground) : null;
   if (warning) content.append(warning);
+  else content.append(textElement("p", formatMunicipalStatus(playground.municipalStatus), "playground-muted"));
   content.append(textElement("p", "No ratings yet", "playground-muted"));
   const button = textElement("button", "View details", "preview-action");
   button.type = "button";
@@ -567,7 +568,7 @@ function renderDetails(playground) {
   detailsContent.append(history);
 
   const sources = detailSection("Sources");
-  for (const source of playground.sources ?? [playground.source]) {
+  for (const source of displayedSources(playground.sources, playground.source)) {
     const entry = document.createElement("p");
     entry.className = "source-entry";
     entry.append(externalLink(sourceName(source.kind), source.url));

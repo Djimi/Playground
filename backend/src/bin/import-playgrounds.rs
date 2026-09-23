@@ -7,9 +7,14 @@ use sofia_playgrounds_backend::{
     enrichment::SOFIAPLAN_URL,
     importer::{DEFAULT_NEIGHBORHOODS_PATH, DEFAULT_OVERPASS_URL, ImportEndpoints, run_import},
 };
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .init();
+
     let database_url = env::var("DATABASE_URL").context("DATABASE_URL is required")?;
     let endpoints = ImportEndpoints {
         overpass_url: env::var("OVERPASS_URL").unwrap_or_else(|_| DEFAULT_OVERPASS_URL.to_owned()),

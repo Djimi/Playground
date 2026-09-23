@@ -49,3 +49,12 @@ export function formatPhotoCredit({ author, attribution }) {
 export function selectedSourceValue(items, field) {
   return items.find((item) => item.field === field && item.selected) ?? null;
 }
+
+export function displayedSources(sources, legacySource) {
+  if (sources?.length) return sources;
+  return legacySource ? [legacySource] : [];
+}
+
+export function formatMunicipalStatus(value) {
+  return value ?? "Municipal status unknown";
+}

@@ -572,13 +572,18 @@ fn canonical_playground(
     let mut capabilities = Vec::new();
     let mut equipment_counts = BTreeMap::new();
     for name in equipment_names {
-        match selected_equipment(&name, sources) {
-            Some((_, count)) if *count > 0 => {
+        let Some(winning) = selected_equipment_observation(&name, sources) else {
+            capabilities.push(name);
+            continue;
+        };
+        match winning.equipment.get(&name) {
+            Some(Some(count)) if *count > 0 => {
                 capabilities.push(name.clone());
                 equipment_counts.insert(name, *count);
             }
+            Some(None) => capabilities.push(name),
+            Some(Some(_)) => {}
             None => capabilities.push(name),
-            _ => {}
         }
     }
 
@@ -655,13 +660,9 @@ fn source_values(sources: &[&SourcePlayground]) -> Vec<SourceValue> {
                 source_id: source.external_id.clone(),
                 date: source.source_date,
                 date_meaning: source.date_meaning,
-                selected: selected_equipment(name, sources)
-                    .map(|(selected, _)| selected)
-                    .or_else(|| selected_equipment_presence(name, sources))
-                    .is_some_and(|selected| {
-                        selected.source == source.source
-                            && selected.external_id == source.external_id
-                    }),
+                selected: selected_equipment_observation(name, sources).is_some_and(|selected| {
+                    selected.source == source.source && selected.external_id == source.external_id
+                }),
             });
         }
     }
@@ -691,23 +692,7 @@ fn selected_value<'a>(
         .max_by(|left, right| compare_candidates(field, left.0, right.0))
 }
 
-fn selected_equipment<'a>(
-    name: &str,
-    sources: &[&'a SourcePlayground],
-) -> Option<(&'a SourcePlayground, &'a i32)> {
-    sources
-        .iter()
-        .filter_map(|source| {
-            source
-                .equipment
-                .get(name)
-                .and_then(|count| count.as_ref())
-                .map(|count| (*source, count))
-        })
-        .max_by(|left, right| compare_candidates("equipment", left.0, right.0))
-}
-
-fn selected_equipment_presence<'a>(
+fn selected_equipment_observation<'a>(
     name: &str,
     sources: &[&'a SourcePlayground],
 ) -> Option<&'a SourcePlayground> {
@@ -1247,6 +1232,94 @@ mod tests {
                 .find(|value| value.field == "equipment.slide")
                 .map(|value| (&value.value, value.selected)),
             Some((&Value::Null, true))
+        );
+    }
+
+    #[test]
+    fn merging_keeps_newer_equipment_presence_over_older_zero_count() {
+        let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
+        osm.source_date = Some(
+            DateTime::parse_from_rfc3339("2026-02-18T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
+        osm.date_meaning = Some(DateMeaning::SourceUpdate);
+        osm.equipment.insert("swing".into(), None);
+
+        let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
+        sofia.source_date = Some(
+            DateTime::parse_from_rfc3339("2019-04-18T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
+        sofia.date_meaning = Some(DateMeaning::Observation);
+        sofia.equipment.insert("swing".into(), Some(0));
+
+        let matches = match_sources(&[osm.clone()], &[sofia.clone()]);
+        let merged = merge_catalog(&[osm], &[sofia], &matches);
+        let playground = &merged.playgrounds[0];
+
+        assert_eq!(playground.capabilities, vec!["swing"]);
+        assert!(playground.equipment_counts.is_empty());
+        assert_eq!(
+            playground
+                .source_values
+                .iter()
+                .find(|value| value.field == "equipment.swing" && value.source_id == "node/1")
+                .map(|value| (&value.value, value.selected)),
+            Some((&Value::Null, true))
+        );
+        assert_eq!(
+            playground
+                .source_values
+                .iter()
+                .find(|value| value.field == "equipment.swing" && value.source_id == "06.129")
+                .map(|value| (&value.value, value.selected)),
+            Some((&json!(0), false))
+        );
+    }
+
+    #[test]
+    fn merging_keeps_newer_zero_count_over_older_equipment_presence() {
+        let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
+        osm.source_date = Some(
+            DateTime::parse_from_rfc3339("2018-01-01T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
+        osm.date_meaning = Some(DateMeaning::SourceUpdate);
+        osm.equipment.insert("swing".into(), None);
+
+        let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
+        sofia.source_date = Some(
+            DateTime::parse_from_rfc3339("2019-04-18T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
+        sofia.date_meaning = Some(DateMeaning::Observation);
+        sofia.equipment.insert("swing".into(), Some(0));
+
+        let matches = match_sources(&[osm.clone()], &[sofia.clone()]);
+        let merged = merge_catalog(&[osm], &[sofia], &matches);
+        let playground = &merged.playgrounds[0];
+
+        assert!(playground.capabilities.is_empty());
+        assert!(playground.equipment_counts.is_empty());
+        assert_eq!(
+            playground
+                .source_values
+                .iter()
+                .find(|value| value.field == "equipment.swing" && value.source_id == "node/1")
+                .map(|value| (&value.value, value.selected)),
+            Some((&Value::Null, false))
+        );
+        assert_eq!(
+            playground
+                .source_values
+                .iter()
+                .find(|value| value.field == "equipment.swing" && value.source_id == "06.129")
+                .map(|value| (&value.value, value.selected)),
+            Some((&json!(0), true))
         );
     }
 }

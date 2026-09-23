@@ -61,3 +61,87 @@ The system SHALL preserve existing hover, keyboard-focus, selection, modal, mobi
 - **WHEN** a visitor opens the enriched details view at 320 CSS pixels wide
 - **THEN** all detail content uses the available viewport without horizontal scrolling
 - **AND** a visible close control and normal keyboard focus behavior remain available
+
+## MODIFIED Requirements
+
+### Requirement: Display every playground pin
+
+The system SHALL display every playground in the Sofia catalog as an interactive pin, independent of the visible map bounds and zoom level, SHALL load the catalog once per page load, and SHALL keep the pins displayed while the visitor pans or zooms. If the catalog request fails, the system SHALL display no playground pins rather than stale or partial playground data.
+
+#### Scenario: Visitor opens the map
+
+- **WHEN** the map loads
+- **THEN** every playground in the catalog is displayed as an interactive pin above the area polygons
+
+#### Scenario: Visitor pans and zooms
+
+- **WHEN** a visitor pans or zooms the map
+- **THEN** every playground pin remains displayed without a new catalog request
+
+#### Scenario: Visitor opens a playground pin
+
+- **WHEN** a visitor clicks, taps, or keyboard-opens a playground pin
+- **THEN** the system displays its recorded name or an unnamed fallback, capabilities, and, when the playground has an OpenStreetMap source record, its OpenStreetMap source link
+
+#### Scenario: Visitor distinguishes a playground pin
+
+- **WHEN** a playground pin appears on the map
+- **THEN** its default appearance is visually distinct from area preview and selected-playground styling
+
+#### Scenario: Catalog request fails
+
+- **WHEN** loading the playground catalog fails or returns an error
+- **THEN** no playground pins are displayed
+- **AND** the map does not present partial or stale playground results
+
+### Requirement: Preview playgrounds from the map
+
+The system SHALL let a visitor preview a playground without first selecting or zooming into its neighborhood, SHALL visibly distinguish the previewed playground pin, SHALL keep the compact preview open while the playground pin or the preview popup content owns pointer hover or keyboard focus, SHALL close the compact preview and return that pin to its default appearance only when neither the pin nor the popup content owns pointer hover or keyboard focus, SHALL preserve a still-focused preview when unrelated pointer hover ends, and SHALL allow pointer activation of the previewed pin to open and keep its details visible within the map viewport. The existing Back, Escape, modal focus, and viewport behavior remains unchanged.
+
+#### Scenario: Pointer visitor previews a playground
+
+- **WHEN** a visitor points at a playground pin on a hover-capable device
+- **THEN** the system displays a compact preview with the recorded main photo when available, name or unnamed fallback, recommended age when available, equipment summary, and platform rating state
+- **AND** the pin receives preview styling
+
+#### Scenario: Pointer visitor leaves a playground preview
+
+- **WHEN** a pointer visitor stops pointing at a playground pin with a visible compact preview
+- **AND** the preview popup content does not own pointer hover or keyboard focus
+- **THEN** the compact preview closes
+- **AND** the pin returns to its default neutral styling
+
+#### Scenario: Keyboard visitor leaves a playground preview
+
+- **WHEN** keyboard focus moves away from a playground pin with a visible compact preview
+- **AND** the preview popup content does not own pointer hover or keyboard focus
+- **THEN** the compact preview closes
+- **AND** the pin returns to its default neutral styling
+
+#### Scenario: Pointer visitor opens details after preview
+
+- **WHEN** a pointer visitor activates a playground pin while its compact preview is visible
+- **THEN** the system opens that playground's details
+- **AND** the details remain open after the activation completes
+
+#### Scenario: Keyboard visitor previews a playground
+
+- **WHEN** a visitor moves keyboard focus to a playground pin
+- **THEN** the system displays the same compact preview available to a pointer visitor
+
+#### Scenario: Pointer hover crosses a focused playground pin
+
+- **WHEN** keyboard focus remains on one playground pin while the pointer briefly enters and leaves another pin
+- **THEN** the focused pin keeps its preview styling and compact preview
+- **AND** the unrelated pin returns to its default styling when the pointer leaves
+
+#### Scenario: Playground preview is near a map edge
+
+- **WHEN** a visitor previews a playground pin near the map viewport edge or fixed header
+- **THEN** the compact preview remains fully visible within the map viewport
+
+#### Scenario: Playground has no platform ratings
+
+- **WHEN** the compact preview has no platform rating data
+- **THEN** the system displays `No ratings yet`
+- **AND** the system does not display a fabricated rating or Google review data

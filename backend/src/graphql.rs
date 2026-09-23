@@ -301,28 +301,35 @@ impl PlaygroundRow {
                 }
             })
             .collect::<Vec<_>>();
-        let source = sources.first().cloned().unwrap_or_else(|| {
-            let kind = if self.primary_source == "sofiaplan" {
-                DataSource::SofiaPlan
-            } else {
-                DataSource::OpenStreetMap
-            };
-            let (attribution, license) = match kind {
-                DataSource::OpenStreetMap => (OSM_ATTRIBUTION, OSM_LICENSE),
-                DataSource::SofiaPlan => ("SofiaPlan", "Reuse terms need confirmation"),
-            };
-            SourceMetadata {
-                id: self.id.clone().into(),
-                kind,
-                url: self.source_url,
-                updated_at: self.source_updated_at.map(|value| value.to_rfc3339()),
-                date_meaning: self
-                    .source_updated_at
-                    .map(|_| SourceDateMeaning::SourceUpdate),
-                attribution: attribution.into(),
-                license: license.into(),
-            }
-        });
+        let source = sources
+            .first()
+            .cloned()
+            .map(|mut source| {
+                source.id = self.id.clone().into();
+                source
+            })
+            .unwrap_or_else(|| {
+                let kind = if self.primary_source == "sofiaplan" {
+                    DataSource::SofiaPlan
+                } else {
+                    DataSource::OpenStreetMap
+                };
+                let (attribution, license) = match kind {
+                    DataSource::OpenStreetMap => (OSM_ATTRIBUTION, OSM_LICENSE),
+                    DataSource::SofiaPlan => ("SofiaPlan", "Reuse terms need confirmation"),
+                };
+                SourceMetadata {
+                    id: self.id.clone().into(),
+                    kind,
+                    url: self.source_url,
+                    updated_at: self.source_updated_at.map(|value| value.to_rfc3339()),
+                    date_meaning: self
+                        .source_updated_at
+                        .map(|_| SourceDateMeaning::SourceUpdate),
+                    attribution: attribution.into(),
+                    license: license.into(),
+                }
+            });
         let source_values = self
             .source_values
             .0

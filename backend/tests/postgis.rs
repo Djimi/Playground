@@ -257,6 +257,59 @@ async fn enrichment_schema_keeps_current_sources_and_safe_defaults(pool: PgPool)
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn graphql_keeps_legacy_source_id_stable_when_source_links_appear(pool: PgPool) {
+    sqlx::query(
+        "INSERT INTO playgrounds (id, location, source_url) VALUES ('node/43', ST_SetSRID(ST_MakePoint(23.3444, 42.7070), 4326)::geography, 'https://www.openstreetmap.org/node/43')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let app = graphql::router(pool.clone(), "http://127.0.0.1:5173").unwrap();
+
+    let before = graphql(
+        &app,
+        r#"{ playground(id: "node/43") { source { id kind url } sources { id } } }"#,
+    )
+    .await;
+    assert_eq!(before["errors"], Value::Null, "{before}");
+    assert_eq!(before["data"]["playground"]["source"]["id"], "node/43");
+    assert_eq!(
+        before["data"]["playground"]["source"]["kind"],
+        "OPEN_STREET_MAP"
+    );
+    assert_eq!(before["data"]["playground"]["sources"], json!([]));
+
+    sqlx::query(
+        "INSERT INTO source_playgrounds (source, external_id, raw_data, location, source_date, date_meaning) VALUES ('openstreetmap', 'node/43', '{}'::jsonb, ST_SetSRID(ST_MakePoint(23.3444, 42.7070), 4326)::geography, '2025-01-01T00:00:00Z', 'source_update')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO playground_source_links (playground_id, source, external_id, match_method) VALUES ('node/43', 'openstreetmap', 'node/43', 'unmatched')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let after = graphql(
+        &app,
+        r#"{ playground(id: "node/43") { source { id kind url } sources { id } } }"#,
+    )
+    .await;
+    assert_eq!(after["errors"], Value::Null, "{after}");
+    assert_eq!(after["data"]["playground"]["source"]["id"], "node/43");
+    assert_eq!(
+        after["data"]["playground"]["source"]["kind"],
+        "OPEN_STREET_MAP"
+    );
+    assert_eq!(
+        after["data"]["playground"]["sources"],
+        json!([{"id":"openstreetmap/node/43"}])
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn graphql_keeps_unknown_equipment_count_available_in_detail_and_list(pool: PgPool) {
     sqlx::query(
         r#"INSERT INTO playgrounds
@@ -544,7 +597,7 @@ async fn graphql_queries_use_postgis_and_combine_catalog_filters(pool: PgPool) {
                 "licenseUrl":"https://creativecommons.org/licenses/by/4.0/","attribution":"A Person / CC BY 4.0",
                 "sourceUrl":"https://commons.wikimedia.org/wiki/File:Photo.jpg"}],
             "photoUrls": ["https://example.test/photo.jpg"],
-            "source": {"id":"openstreetmap/node/42","kind":"OPEN_STREET_MAP","url":"https://www.openstreetmap.org/node/42",
+            "source": {"id":"graphql-test/enriched","kind":"OPEN_STREET_MAP","url":"https://www.openstreetmap.org/node/42",
                 "updatedAt":"2018-01-01T00:00:00+00:00","dateMeaning":"SOURCE_UPDATE","attribution":"© OpenStreetMap contributors","license":"ODbL-1.0"},
             "sources": [
                 {"id":"openstreetmap/node/42","kind":"OPEN_STREET_MAP","url":"https://www.openstreetmap.org/node/42",
