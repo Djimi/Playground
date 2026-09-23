@@ -11,7 +11,10 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
-use crate::enrichment::{DateMeaning, SourceKind, SourcePlayground};
+use crate::enrichment::{
+    CanonicalPlayground, DateMeaning, SourceKind, SourceLink, SourcePlayground, match_sources,
+    merge_catalog,
+};
 
 pub const DEFAULT_OVERPASS_URL: &str = "https://overpass-api.de/api/interpreter";
 pub const DEFAULT_NEIGHBORHOODS_PATH: &str = "../public/data/sofia-neighborhoods.geojson";
@@ -35,21 +38,6 @@ const CAPABILITIES: &[&str] = &[
     "swing",
 ];
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Playground {
-    pub id: String,
-    pub name: Option<String>,
-    pub longitude: f64,
-    pub latitude: f64,
-    pub capabilities: Vec<String>,
-    pub equipment_counts: BTreeMap<String, i32>,
-    pub min_age: Option<i16>,
-    pub max_age: Option<i16>,
-    pub photo_urls: Vec<String>,
-    pub source_url: String,
-    pub source_updated_at: Option<DateTime<Utc>>,
-}
-
 #[derive(Debug, Clone)]
 pub struct Neighborhood {
     pub id: String,
@@ -59,6 +47,14 @@ pub struct Neighborhood {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImportCounts {
+    pub neighborhoods: u64,
+    pub playgrounds: u64,
+    pub memberships: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotCounts {
+    pub source_records: u64,
     pub neighborhoods: u64,
     pub playgrounds: u64,
     pub memberships: u64,
@@ -138,12 +134,22 @@ pub async fn apply_import(
     overpass_body: &str,
     neighborhoods_path: &Path,
 ) -> Result<ImportCounts> {
-    let playgrounds = normalize_overpass(overpass_body)?
-        .iter()
-        .map(legacy_playground)
-        .collect::<Vec<_>>();
+    let source_records = normalize_overpass(overpass_body)?;
+    let catalog = merge_catalog(&source_records, &[], &match_sources(&source_records, &[]));
     let neighborhoods = load_neighborhoods(neighborhoods_path)?;
-    replace_snapshot(pool, &neighborhoods, &playgrounds).await
+    let counts = replace_snapshot(
+        pool,
+        &neighborhoods,
+        &source_records,
+        &catalog.playgrounds,
+        &catalog.source_links,
+    )
+    .await?;
+    Ok(ImportCounts {
+        neighborhoods: counts.neighborhoods,
+        playgrounds: counts.playgrounds,
+        memberships: counts.memberships,
+    })
 }
 
 pub async fn fetch_overpass(url: &str) -> Result<String> {
@@ -286,8 +292,10 @@ pub fn load_neighborhoods(path: &Path) -> Result<Vec<Neighborhood>> {
 pub async fn replace_snapshot(
     pool: &PgPool,
     neighborhoods: &[Neighborhood],
-    playgrounds: &[Playground],
-) -> Result<ImportCounts> {
+    source_records: &[SourcePlayground],
+    playgrounds: &[CanonicalPlayground],
+    source_links: &[SourceLink],
+) -> Result<SnapshotCounts> {
     let mut transaction = pool.begin().await.context("begin import transaction")?;
     sqlx::query(
         "CREATE TEMP TABLE import_neighborhoods (LIKE neighborhoods INCLUDING ALL) ON COMMIT DROP",
@@ -301,6 +309,18 @@ pub async fn replace_snapshot(
     .execute(&mut *transaction)
     .await
     .context("create playground import staging table")?;
+    sqlx::query(
+        "CREATE TEMP TABLE import_source_playgrounds (LIKE source_playgrounds INCLUDING ALL) ON COMMIT DROP",
+    )
+    .execute(&mut *transaction)
+    .await
+    .context("create source playground import staging table")?;
+    sqlx::query(
+        "CREATE TEMP TABLE import_playground_source_links (LIKE playground_source_links INCLUDING ALL) ON COMMIT DROP",
+    )
+    .execute(&mut *transaction)
+    .await
+    .context("create source link import staging table")?;
 
     for neighborhood in neighborhoods {
         sqlx::query(
@@ -314,9 +334,26 @@ pub async fn replace_snapshot(
         .with_context(|| format!("stage neighborhood {}", neighborhood.id))?;
     }
 
+    for source_record in source_records {
+        sqlx::query(
+            "INSERT INTO import_source_playgrounds (source, external_id, raw_data, normalized_name, location, source_date, date_meaning) VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8)",
+        )
+        .bind(source_kind(source_record.source))
+        .bind(&source_record.external_id)
+        .bind(serde_json::to_value(&source_record.raw_data)?)
+        .bind(&source_record.name)
+        .bind(source_record.longitude)
+        .bind(source_record.latitude)
+        .bind(source_record.source_date)
+        .bind(source_record.date_meaning.map(date_meaning))
+        .execute(&mut *transaction)
+        .await
+        .with_context(|| format!("stage source playground {}", source_record.external_id))?;
+    }
+
     for playground in playgrounds {
         sqlx::query(
-            "INSERT INTO import_playgrounds (id, name, location, capabilities, equipment_counts, min_age, max_age, photo_urls, source_url, source_updated_at) VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6, $7, $8, $9, $10, $11)",
+            "INSERT INTO import_playgrounds (id, name, location, capabilities, equipment_counts, min_age, max_age, address, surface, fenced, ownership, access, fee, municipal_status, ordinance_compliant, repairs, notes, primary_source, photo_urls, photos, source_values, source_url, source_updated_at) VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)",
         )
         .bind(&playground.id)
         .bind(&playground.name)
@@ -326,7 +363,20 @@ pub async fn replace_snapshot(
         .bind(serde_json::to_value(&playground.equipment_counts)?)
         .bind(playground.min_age)
         .bind(playground.max_age)
-        .bind(&playground.photo_urls)
+        .bind(&playground.address)
+        .bind(&playground.surface)
+        .bind(playground.fenced)
+        .bind(&playground.ownership)
+        .bind(&playground.access)
+        .bind(&playground.fee)
+        .bind(&playground.municipal_status)
+        .bind(playground.ordinance_compliant)
+        .bind(&playground.repairs)
+        .bind(&playground.notes)
+        .bind(source_kind(playground.primary_source))
+        .bind(playground.photos.iter().map(|photo| photo.url.clone()).collect::<Vec<_>>())
+        .bind(serde_json::to_value(&playground.photos)?)
+        .bind(serde_json::to_value(&playground.source_values)?)
         .bind(&playground.source_url)
         .bind(playground.source_updated_at)
         .execute(&mut *transaction)
@@ -334,10 +384,30 @@ pub async fn replace_snapshot(
         .with_context(|| format!("stage playground {}", playground.id))?;
     }
 
+    for source_link in source_links {
+        sqlx::query(
+            "INSERT INTO import_playground_source_links (playground_id, source, external_id, match_method, match_distance_meters) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(&source_link.playground_id)
+        .bind(source_kind(source_link.source))
+        .bind(&source_link.external_id)
+        .bind(source_link.match_method)
+        .bind(source_link.match_distance_meters)
+        .execute(&mut *transaction)
+        .await
+        .with_context(|| format!("stage source link {}", source_link.external_id))?;
+    }
+
     sqlx::query("DELETE FROM playground_neighborhoods")
         .execute(&mut *transaction)
         .await?;
+    sqlx::query("DELETE FROM playground_source_links")
+        .execute(&mut *transaction)
+        .await?;
     sqlx::query("DELETE FROM playgrounds")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("DELETE FROM source_playgrounds")
         .execute(&mut *transaction)
         .await?;
     sqlx::query("DELETE FROM neighborhoods")
@@ -346,7 +416,13 @@ pub async fn replace_snapshot(
     sqlx::query("INSERT INTO neighborhoods SELECT * FROM import_neighborhoods")
         .execute(&mut *transaction)
         .await?;
+    sqlx::query("INSERT INTO source_playgrounds SELECT * FROM import_source_playgrounds")
+        .execute(&mut *transaction)
+        .await?;
     sqlx::query("INSERT INTO playgrounds SELECT * FROM import_playgrounds")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("INSERT INTO playground_source_links SELECT * FROM import_playground_source_links")
         .execute(&mut *transaction)
         .await?;
     let memberships = sqlx::query(
@@ -361,7 +437,8 @@ pub async fn replace_snapshot(
         .commit()
         .await
         .context("commit imported snapshot")?;
-    Ok(ImportCounts {
+    Ok(SnapshotCounts {
+        source_records: source_records.len() as u64,
         neighborhoods: neighborhoods.len() as u64,
         playgrounds: playgrounds.len() as u64,
         memberships,
@@ -462,23 +539,17 @@ fn normalize_root(element: &Element, raw_root: Value) -> Result<Root> {
     })
 }
 
-fn legacy_playground(source: &SourcePlayground) -> Playground {
-    Playground {
-        id: source.external_id.clone(),
-        name: source.name.clone(),
-        longitude: source.longitude,
-        latitude: source.latitude,
-        capabilities: source.equipment.keys().cloned().collect(),
-        equipment_counts: source
-            .equipment
-            .iter()
-            .filter_map(|(name, count)| count.map(|count| (name.clone(), count)))
-            .collect(),
-        min_age: source.values.get("min_age").and_then(Value::as_i64).map(|age| age as i16),
-        max_age: source.values.get("max_age").and_then(Value::as_i64).map(|age| age as i16),
-        photo_urls: Vec::new(),
-        source_url: format!("https://www.openstreetmap.org/{}", source.external_id),
-        source_updated_at: source.source_date,
+fn source_kind(source: SourceKind) -> &'static str {
+    match source {
+        SourceKind::OpenStreetMap => "openstreetmap",
+        SourceKind::SofiaPlan => "sofiaplan",
+    }
+}
+
+fn date_meaning(meaning: DateMeaning) -> &'static str {
+    match meaning {
+        DateMeaning::Observation => "observation",
+        DateMeaning::SourceUpdate => "source_update",
     }
 }
 

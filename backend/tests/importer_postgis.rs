@@ -2,7 +2,12 @@ use std::path::Path;
 
 use axum::{Router, http::StatusCode, response::IntoResponse, routing::post};
 use serde_json::Value;
-use sofia_playgrounds_backend::importer::run_import;
+use sofia_playgrounds_backend::{
+    enrichment::{match_sources, merge_catalog, normalize_sofiaplan},
+    importer::{
+        load_neighborhoods, normalize_overpass, replace_snapshot, run_import, SnapshotCounts,
+    },
+};
 use sqlx::{PgPool, Row};
 use tokio::{net::TcpListener, task::JoinHandle};
 
@@ -20,6 +25,11 @@ const EQUIPMENT: &str = r#"{"elements":[
 const INVALID: &str =
     r#"{"elements":[{"type":"node","id":1,"lat":100,"lon":0,"tags":{"leisure":"playground"}}]}"#;
 const REMARKED: &str = r#"{"remark":"runtime error","elements":[]}"#;
+const ENRICHED: &str = r#"{"elements":[
+  {"type":"node","id":1,"lat":42.7070,"lon":23.3444,"tags":{"leisure":"playground","name":"Matched"}},
+  {"type":"node","id":2,"lat":42.7000,"lon":23.3000,"tags":{"leisure":"playground"}},
+  {"type":"node","id":3,"lat":42.7500,"lon":23.3500,"tags":{"leisure":"playground"}}
+]}"#;
 
 async fn valid() -> &'static str {
     VALID
@@ -66,12 +76,45 @@ async fn catalog_ids(pool: &PgPool) -> Vec<String> {
         .collect()
 }
 
+async fn count(pool: &PgPool, table: &str) -> i64 {
+    sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn replace_enriched_snapshot(pool: &PgPool) -> anyhow::Result<SnapshotCounts> {
+    let osm = normalize_overpass(ENRICHED)?;
+    let sofia = normalize_sofiaplan(include_str!("fixtures/sofiaplan-playgrounds.geojson"))?;
+    let matches = match_sources(&osm, &sofia);
+    let catalog = merge_catalog(&osm, &sofia, &matches);
+    let mut sources = osm;
+    sources.extend(sofia);
+
+    replace_snapshot(
+        pool,
+        &load_neighborhoods(Path::new("tests/fixtures/import-neighborhoods.geojson"))?,
+        &sources,
+        &catalog.playgrounds,
+        &catalog.source_links,
+    )
+    .await
+}
+
 async fn seed_prior_catalog(pool: &PgPool) {
     sqlx::query("DELETE FROM playground_neighborhoods")
         .execute(pool)
         .await
         .unwrap();
+    sqlx::query("DELETE FROM playground_source_links")
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM playgrounds")
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM source_playgrounds")
         .execute(pool)
         .await
         .unwrap();
@@ -85,6 +128,108 @@ async fn seed_prior_catalog(pool: &PgPool) {
     .execute(pool)
     .await
     .unwrap();
+    sqlx::query(
+        "INSERT INTO source_playgrounds (source, external_id, raw_data, location) VALUES ('openstreetmap', 'prior/1', '{}'::jsonb, ST_SetSRID(ST_MakePoint(23.3, 42.7), 4326)::geography)",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO playground_source_links (playground_id, source, external_id, match_method) VALUES ('prior/1', 'openstreetmap', 'prior/1', 'unmatched')",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn enriched_snapshot_persists_sources_links_and_canonical_provenance(pool: PgPool) {
+    let first = replace_enriched_snapshot(&pool).await.unwrap();
+    let second = replace_enriched_snapshot(&pool).await.unwrap();
+
+    assert_eq!(first, second);
+    assert_eq!(
+        second,
+        SnapshotCounts {
+            source_records: 6,
+            neighborhoods: 3,
+            playgrounds: 4,
+            memberships: 0,
+        }
+    );
+    assert_eq!(count(&pool, "source_playgrounds").await, 6);
+    assert_eq!(count(&pool, "playground_source_links").await, 5);
+    assert_eq!(count(&pool, "playgrounds").await, 4);
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT raw_data #>> '{properties,nobekt_new}' FROM source_playgrounds WHERE source = 'sofiaplan' AND external_id = '06.129'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        "06.129"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT primary_source FROM playgrounds WHERE id = 'node/1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        "openstreetmap"
+    );
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT source_values @> '[{\"field\":\"address\",\"source_id\":\"06.129\",\"selected\":true}]'::jsonb FROM playgrounds WHERE id = 'node/1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    let (method, distance): (String, f64) = sqlx::query_as(
+        "SELECT match_method, match_distance_meters FROM playground_source_links WHERE source = 'sofiaplan' AND external_id = '06.129'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(method, "proximity");
+    assert_eq!(distance, 0.0);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM source_playgrounds WHERE source = 'sofiaplan' AND external_id = '06.131'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        1
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn enriched_snapshot_rolls_back_sources_and_canonical_records_on_insert_failure(pool: PgPool) {
+    seed_prior_catalog(&pool).await;
+    sqlx::query(
+        "CREATE FUNCTION importer_test_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced canonical failure'; END $$",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER importer_test_fail BEFORE INSERT ON playgrounds FOR EACH ROW EXECUTE FUNCTION importer_test_fail()",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert!(replace_enriched_snapshot(&pool).await.is_err());
+    assert_eq!(catalog_ids(&pool).await, ["prior/1"]);
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT external_id FROM source_playgrounds WHERE source = 'openstreetmap'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        "prior/1"
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
