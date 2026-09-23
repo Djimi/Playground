@@ -24,6 +24,8 @@ services:
       API_ADDR: 0.0.0.0:3000
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
+      SOFIAPLAN_URL: ${SOFIAPLAN_URL:-https://api.sofiaplan.bg/datasets/5}
+      COMMONS_API_URL: ${COMMONS_API_URL:-https://commons.wikimedia.org/w/api.php}
       NEIGHBORHOODS_PATH: /app/public/data/sofia-neighborhoods.geojson
     ports:
       - "${API_PORT:-3000}:3000"

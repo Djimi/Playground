@@ -11,9 +11,10 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
+use crate::commons::{LicensedPhoto, resolve_commons};
 use crate::enrichment::{
     CanonicalPlayground, DateMeaning, SourceKind, SourceLink, SourcePlayground, match_sources,
-    merge_catalog,
+    merge_catalog, normalize_sofiaplan,
 };
 
 pub const DEFAULT_OVERPASS_URL: &str = "https://overpass-api.de/api/interpreter";
@@ -47,9 +48,22 @@ pub struct Neighborhood {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImportCounts {
+    pub osm_source_records: u64,
+    pub sofia_source_records: u64,
+    pub canonical_playgrounds: u64,
+    pub clear_matches: u64,
+    pub ambiguous_records: u64,
+    pub excluded_source_records: u64,
+    pub accepted_photos: u64,
+    pub rejected_photos: u64,
     pub neighborhoods: u64,
-    pub playgrounds: u64,
     pub memberships: u64,
+}
+
+pub struct ImportEndpoints {
+    pub overpass_url: String,
+    pub sofiaplan_url: String,
+    pub commons_api_url: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,21 +136,68 @@ struct Root {
 
 pub async fn run_import(
     pool: &PgPool,
-    overpass_url: &str,
+    endpoints: &ImportEndpoints,
     neighborhoods_path: &Path,
 ) -> Result<ImportCounts> {
-    let body = fetch_overpass(overpass_url).await?;
-    apply_import(pool, &body, neighborhoods_path).await
-}
-
-pub async fn apply_import(
-    pool: &PgPool,
-    overpass_body: &str,
-    neighborhoods_path: &Path,
-) -> Result<ImportCounts> {
-    let source_records = normalize_overpass(overpass_body)?;
-    let catalog = merge_catalog(&source_records, &[], &match_sources(&source_records, &[]));
+    let client = reqwest::Client::new();
+    let osm = normalize_overpass(&fetch_overpass(&client, &endpoints.overpass_url).await?)?;
+    let sofia_body = client
+        .get(&endpoints.sofiaplan_url)
+        .send()
+        .await
+        .with_context(|| format!("request SofiaPlan endpoint {}", endpoints.sofiaplan_url))?
+        .error_for_status()
+        .context("SofiaPlan returned an HTTP error")?
+        .text()
+        .await
+        .context("read SofiaPlan response")?;
+    let sofia = normalize_sofiaplan(&sofia_body)?;
     let neighborhoods = load_neighborhoods(neighborhoods_path)?;
+
+    let titles = osm
+        .iter()
+        .flat_map(|record| record.commons_titles.iter().cloned())
+        .collect::<Vec<_>>();
+    let (photos, rejected_photos) =
+        match resolve_commons(&client, &endpoints.commons_api_url, &titles).await {
+            Ok(result) => (
+                result
+                    .accepted
+                    .into_iter()
+                    .map(|resolved| (resolved.requested_title, resolved.photo))
+                    .collect::<BTreeMap<String, LicensedPhoto>>(),
+                result.rejected as u64,
+            ),
+            Err(error) => {
+                eprintln!(
+                    "Warning: Commons photo resolution failed for {} referenced photos: {error}",
+                    titles.len()
+                );
+                (BTreeMap::new(), titles.len() as u64)
+            }
+        };
+    let mut osm = osm;
+    let mut accepted_photos = 0;
+    for record in &mut osm {
+        for title in &record.commons_titles {
+            if let Some(photo) = photos.get(title) {
+                record.photos.push(photo.clone());
+                accepted_photos += 1;
+            }
+        }
+    }
+
+    let matches = match_sources(&osm, &sofia);
+    let catalog = merge_catalog(&osm, &sofia, &matches);
+    let excluded_source_records = osm
+        .iter()
+        .chain(&sofia)
+        .filter(|record| record.excluded_from_catalog)
+        .count() as u64;
+    let osm_source_records = osm.len() as u64;
+    let sofia_source_records = sofia.len() as u64;
+    let mut source_records = osm;
+    source_records.extend(sofia);
     let counts = replace_snapshot(
         pool,
         &neighborhoods,
@@ -146,14 +207,21 @@ pub async fn apply_import(
     )
     .await?;
     Ok(ImportCounts {
+        osm_source_records,
+        sofia_source_records,
+        canonical_playgrounds: counts.playgrounds,
+        clear_matches: matches.clear_pairs.len() as u64,
+        ambiguous_records: matches.ambiguous_source_ids.len() as u64,
+        excluded_source_records,
+        accepted_photos,
+        rejected_photos,
         neighborhoods: counts.neighborhoods,
-        playgrounds: counts.playgrounds,
         memberships: counts.memberships,
     })
 }
 
-pub async fn fetch_overpass(url: &str) -> Result<String> {
-    let response = reqwest::Client::new()
+async fn fetch_overpass(client: &reqwest::Client, url: &str) -> Result<String> {
+    let response = client
         .post(url)
         .header("content-type", "application/x-www-form-urlencoded")
         .header("user-agent", "SofiaPlaygrounds/0.1 (local import)")
@@ -190,11 +258,7 @@ pub fn normalize_overpass(body: &str) -> Result<Vec<SourcePlayground>> {
         if leisure == Some("playground") {
             roots.push(normalize_root(&element, raw_element)?);
         } else if let Some(capability) = equipment_kind {
-            equipment.push((
-                element_point(&element)?,
-                capability,
-                raw_element,
-            ));
+            equipment.push((element_point(&element)?, capability, raw_element));
         }
     }
 
@@ -480,7 +544,10 @@ fn normalize_root(element: &Element, raw_root: Value) -> Result<Root> {
     }
     let mut values = BTreeMap::new();
     for field in ["surface", "access", "fee"] {
-        if let Some(value) = tag(element, field).map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(value) = tag(element, field)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             values.insert(field.to_owned(), Value::String(value.to_owned()));
         }
     }
@@ -554,7 +621,13 @@ fn date_meaning(meaning: DateMeaning) -> &'static str {
 }
 
 fn warn_invalid_osm_value(external_id: &str, field: &str, value: &str) {
-    tracing::warn!(source = "openstreetmap", external_id, field, rejected_value = value, "reject invalid OpenStreetMap value");
+    tracing::warn!(
+        source = "openstreetmap",
+        external_id,
+        field,
+        rejected_value = value,
+        "reject invalid OpenStreetMap value"
+    );
 }
 
 fn tag<'a>(element: &'a Element, name: &str) -> Option<&'a str> {
@@ -811,7 +884,10 @@ mod tests {
 
         assert_eq!(playgrounds.len(), 1);
         let playground = &playgrounds[0];
-        assert_eq!(playground.source, crate::enrichment::SourceKind::OpenStreetMap);
+        assert_eq!(
+            playground.source,
+            crate::enrichment::SourceKind::OpenStreetMap
+        );
         assert_eq!(playground.external_id, "way/20");
         assert_eq!(playground.name.as_deref(), Some("Test"));
         assert_eq!(
@@ -831,10 +907,16 @@ mod tests {
         assert_eq!(playground.raw_data["root"]["changeset"], 4);
         assert_eq!(playground.raw_data["root"]["user"], "mapper");
         assert_eq!(playground.raw_data["root"]["uid"], 5);
-        assert_eq!(playground.raw_data["equipment"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            playground.raw_data["equipment"].as_array().unwrap().len(),
+            2
+        );
         assert_eq!(playground.raw_data["equipment"][0]["version"], 6);
         assert_eq!(playground.raw_data["equipment"][0]["changeset"], 7);
-        assert_eq!(playground.raw_data["equipment"][0]["user"], "equipment-mapper");
+        assert_eq!(
+            playground.raw_data["equipment"][0]["user"],
+            "equipment-mapper"
+        );
         assert_eq!(playground.raw_data["equipment"][0]["uid"], 8);
         assert_eq!((playground.longitude, playground.latitude), (23.5, 42.5));
         assert_eq!(
@@ -910,7 +992,10 @@ mod tests {
         );
         assert_eq!(playgrounds[0].equipment["swing"], Some(1));
         assert_eq!(
-            playgrounds[0].raw_data["equipment"].as_array().unwrap().len(),
+            playgrounds[0].raw_data["equipment"]
+                .as_array()
+                .unwrap()
+                .len(),
             1
         );
     }
