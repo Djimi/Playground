@@ -21,3 +21,9 @@
 - Leaflet popup auto-pan can trigger marker mouseout without visitor pointer movement; keep pointer-only preview ownership until subsequent pointer motion settles or the popup is entered.
 - Clear pointer-only auto-pan ownership when keyboard focus moves to a marker; a pointer hold must not suppress the focused marker's popup.
 - Account for the physical gap between a marker and popup tip after re-hover; zero-delay mouseout closes before the pointer can cross it.
+- Prefer useful stale official data over hiding it when the UI shows the observation date, source, and a clear warning that it may be outdated.
+- Make visual design alternatives materially different; near-identical mockups waste the comparison and can hide rendering problems.
+- Before sharing a local visualization URL, verify the port is listening and an HTTP request succeeds; `server-info` alone can be stale.
+- When recurring data refresh and deployment are out of scope, limit design to one-time population and do not introduce scheduler or hosting decisions.
+- Keep the existing `No ratings yet` and `No reviews yet` placeholders until the later community contribution feature replaces them.
+- For multi-source imports, retain both source records and their canonical mapping; do not keep only merged winners when debugging or re-merging may be needed.
