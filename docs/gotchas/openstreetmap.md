@@ -37,9 +37,9 @@ Cause: public services limit request frequency and query size. Overpass can
 also reject a client without a descriptive `User-Agent` with HTTP 406.
 
 Fix: batch lookups, add delays and retries, send a descriptive `User-Agent`,
-and keep downloaded data local at runtime. If one configured Overpass instance
-returns 406 or 429, retry later or select another trusted instance through
-`OVERPASS_URL`; do not bypass import validation.
+and keep downloaded data local at runtime. For a failed manual import, retry
+later or select another trusted instance through `OVERPASS_URL`; do not bypass
+import validation or rapidly repeat a large query.
 
 Verify with `node scripts/prepare-neighborhoods.mjs`; do not call these services from the browser.
 
