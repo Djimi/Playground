@@ -14,8 +14,12 @@ use axum::{
     routing::{get, post},
 };
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
+use serde_json::Value;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
 use tower_http::cors::{AllowOrigin, CorsLayer};
+
+use crate::enrichment::SOFIAPLAN_DATASET_PAGE;
 
 const OSM_ATTRIBUTION: &str = "© OpenStreetMap contributors";
 const OSM_LICENSE: &str = "ODbL-1.0";
@@ -97,11 +101,49 @@ pub struct Neighborhood {
     pub name: String,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Enum, PartialEq)]
+pub enum DataSource {
+    #[serde(rename = "open_street_map", alias = "openstreetmap")]
+    OpenStreetMap,
+    #[serde(rename = "sofia_plan", alias = "sofiaplan")]
+    SofiaPlan,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Enum, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceDateMeaning {
+    Observation,
+    SourceUpdate,
+}
+
+#[derive(Deserialize, SimpleObject)]
+pub struct Photo {
+    pub url: String,
+    pub author: String,
+    pub license: String,
+    pub license_url: String,
+    pub attribution: String,
+    pub source_url: String,
+}
+
 #[derive(SimpleObject)]
+pub struct FieldSourceValue {
+    pub field: String,
+    pub value: String,
+    pub source: DataSource,
+    pub source_id: ID,
+    pub date: Option<String>,
+    pub date_meaning: Option<SourceDateMeaning>,
+    pub selected: bool,
+}
+
+#[derive(Clone, SimpleObject)]
 pub struct SourceMetadata {
     pub id: ID,
+    pub kind: DataSource,
     pub url: String,
     pub updated_at: Option<String>,
+    pub date_meaning: Option<SourceDateMeaning>,
     pub attribution: String,
     pub license: String,
 }
@@ -116,8 +158,21 @@ pub struct Playground {
     pub equipment: Vec<Equipment>,
     pub min_age: Option<i32>,
     pub max_age: Option<i32>,
+    pub address: Option<String>,
+    pub surface: Option<String>,
+    pub fenced: Option<bool>,
+    pub ownership: Option<String>,
+    pub access: Option<String>,
+    pub fee: Option<String>,
+    pub municipal_status: Option<String>,
+    pub ordinance_compliant: Option<bool>,
+    pub repairs: Option<String>,
+    pub notes: Option<String>,
+    pub photos: Vec<Photo>,
     pub photo_urls: Vec<String>,
     pub source: SourceMetadata,
+    pub sources: Vec<SourceMetadata>,
+    pub source_values: Vec<FieldSourceValue>,
     pub distance_meters: Option<f64>,
 }
 
@@ -125,6 +180,25 @@ pub struct Playground {
 pub struct Equipment {
     pub capability: Capability,
     pub count: Option<i32>,
+}
+
+#[derive(Deserialize)]
+struct StoredSource {
+    source: DataSource,
+    external_id: String,
+    source_date: Option<DateTime<Utc>>,
+    date_meaning: Option<SourceDateMeaning>,
+}
+
+#[derive(Deserialize)]
+struct StoredSourceValue {
+    field: String,
+    value: Value,
+    source: DataSource,
+    source_id: String,
+    date: Option<DateTime<Utc>>,
+    date_meaning: Option<SourceDateMeaning>,
+    selected: bool,
 }
 
 #[derive(FromRow)]
@@ -139,9 +213,23 @@ struct PlaygroundRow {
     equipment_counts: sqlx::types::Json<BTreeMap<String, i32>>,
     min_age: Option<i16>,
     max_age: Option<i16>,
+    address: Option<String>,
+    surface: Option<String>,
+    fenced: Option<bool>,
+    ownership: Option<String>,
+    access: Option<String>,
+    fee: Option<String>,
+    municipal_status: Option<String>,
+    ordinance_compliant: Option<bool>,
+    repairs: Option<String>,
+    notes: Option<String>,
+    photos: sqlx::types::Json<Vec<Photo>>,
     photo_urls: Vec<String>,
     source_url: String,
     source_updated_at: Option<DateTime<Utc>>,
+    primary_source: String,
+    source_records: sqlx::types::Json<Vec<StoredSource>>,
+    source_values: sqlx::types::Json<Vec<StoredSourceValue>>,
     distance_meters: Option<f64>,
 }
 
@@ -183,14 +271,85 @@ impl PlaygroundRow {
             })
             .collect();
 
-        Ok(Playground {
-            source: SourceMetadata {
+        let sources = self
+            .source_records
+            .0
+            .into_iter()
+            .map(|record| {
+                let (prefix, url, attribution, license) = match record.source {
+                    DataSource::OpenStreetMap => (
+                        "openstreetmap",
+                        format!("https://www.openstreetmap.org/{}", record.external_id),
+                        OSM_ATTRIBUTION,
+                        OSM_LICENSE,
+                    ),
+                    DataSource::SofiaPlan => (
+                        "sofiaplan",
+                        SOFIAPLAN_DATASET_PAGE.to_owned(),
+                        "SofiaPlan",
+                        "Reuse terms need confirmation",
+                    ),
+                };
+                SourceMetadata {
+                    id: format!("{prefix}/{}", record.external_id).into(),
+                    kind: record.source,
+                    url,
+                    updated_at: record.source_date.map(|value| value.to_rfc3339()),
+                    date_meaning: record.date_meaning,
+                    attribution: attribution.into(),
+                    license: license.into(),
+                }
+            })
+            .collect::<Vec<_>>();
+        let source = sources.first().cloned().unwrap_or_else(|| {
+            let kind = if self.primary_source == "sofiaplan" {
+                DataSource::SofiaPlan
+            } else {
+                DataSource::OpenStreetMap
+            };
+            let (attribution, license) = match kind {
+                DataSource::OpenStreetMap => (OSM_ATTRIBUTION, OSM_LICENSE),
+                DataSource::SofiaPlan => ("SofiaPlan", "Reuse terms need confirmation"),
+            };
+            SourceMetadata {
                 id: self.id.clone().into(),
+                kind,
                 url: self.source_url,
                 updated_at: self.source_updated_at.map(|value| value.to_rfc3339()),
-                attribution: OSM_ATTRIBUTION.into(),
-                license: OSM_LICENSE.into(),
-            },
+                date_meaning: self
+                    .source_updated_at
+                    .map(|_| SourceDateMeaning::SourceUpdate),
+                attribution: attribution.into(),
+                license: license.into(),
+            }
+        });
+        let source_values = self
+            .source_values
+            .0
+            .into_iter()
+            .map(|value| {
+                let value_text = match value.value {
+                    Value::String(text) => text,
+                    Value::Number(number) => number.to_string(),
+                    Value::Bool(boolean) => boolean.to_string(),
+                    _ => return Err(Error::new("playground data is temporarily unavailable")),
+                };
+                Ok(FieldSourceValue {
+                    field: value.field,
+                    value: value_text,
+                    source: value.source,
+                    source_id: value.source_id.into(),
+                    date: value.date.map(|date| date.to_rfc3339()),
+                    date_meaning: value.date_meaning,
+                    selected: value.selected,
+                })
+            })
+            .collect::<GraphqlResult<Vec<_>>>()?;
+
+        Ok(Playground {
+            source,
+            sources,
+            source_values,
             id: self.id.into(),
             name: self.name,
             location: Coordinate {
@@ -210,6 +369,17 @@ impl PlaygroundRow {
             equipment,
             min_age: self.min_age.map(i32::from),
             max_age: self.max_age.map(i32::from),
+            address: self.address,
+            surface: self.surface,
+            fenced: self.fenced,
+            ownership: self.ownership,
+            access: self.access,
+            fee: self.fee,
+            municipal_status: self.municipal_status,
+            ordinance_compliant: self.ordinance_compliant,
+            repairs: self.repairs,
+            notes: self.notes,
+            photos: self.photos.0,
             photo_urls: self.photo_urls,
             distance_meters: self.distance_meters,
         })
@@ -323,9 +493,29 @@ SELECT p.id,
        p.equipment_counts,
        p.min_age,
        p.max_age,
+       p.address,
+       p.surface,
+       p.fenced,
+       p.ownership,
+       p.access,
+       p.fee,
+       p.municipal_status,
+       p.ordinance_compliant,
+       p.repairs,
+       p.notes,
+       p.photos,
        p.photo_urls,
        p.source_url,
        p.source_updated_at,
+       p.primary_source,
+       p.source_values,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object(
+           'source', s.source, 'external_id', s.external_id,
+           'source_date', s.source_date, 'date_meaning', s.date_meaning)
+           ORDER BY CASE s.source WHEN 'openstreetmap' THEN 0 ELSE 1 END, s.external_id)
+         FROM playground_source_links l
+         JOIN source_playgrounds s ON (s.source, s.external_id) = (l.source, l.external_id)
+         WHERE l.playground_id = p.id), '[]'::jsonb) AS source_records,
 "#;
 
 async fn detail(pool: &PgPool, id: &str) -> sqlx::Result<Option<PlaygroundRow>> {

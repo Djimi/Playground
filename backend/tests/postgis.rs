@@ -95,6 +95,39 @@ async fn seed(pool: &PgPool) {
     .execute(pool)
     .await
     .unwrap();
+    sqlx::query(
+        r#"INSERT INTO playgrounds
+          (id, name, location, capabilities, photo_urls, source_url, source_updated_at,
+           address, surface, fenced, ownership, access, fee, municipal_status,
+           ordinance_compliant, repairs, notes, primary_source, photos, source_values)
+        VALUES ('graphql-test/enriched', 'Enriched', ST_SetSRID(ST_MakePoint(2, 2), 4326)::geography,
+          ARRAY[]::text[], ARRAY['https://example.test/photo.jpg'],
+          'https://www.openstreetmap.org/node/42', '2018-01-01T00:00:00Z',
+          'Park entrance', 'rubber', false, 'municipal', 'public', 'free', 'planned',
+          false, 'Replace slide', 'Inspection pending', 'openstreetmap',
+          '[{"url":"https://example.test/photo.jpg","author":"A Person","license":"CC BY 4.0","license_url":"https://creativecommons.org/licenses/by/4.0/","attribution":"A Person / CC BY 4.0","source_url":"https://commons.wikimedia.org/wiki/File:Photo.jpg"}]'::jsonb,
+          '[{"field":"fenced","value":true,"source":"open_street_map","source_id":"node/42","date":"2018-01-01T00:00:00Z","date_meaning":"source_update","selected":false},
+            {"field":"fenced","value":false,"source":"sofia_plan","source_id":"06.129","date":"2019-04-18T00:00:00Z","date_meaning":"observation","selected":true}]'::jsonb)"#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO source_playgrounds (source, external_id, raw_data, location, source_date, date_meaning) VALUES
+          ('sofiaplan', '06.129', '{}'::jsonb, ST_SetSRID(ST_MakePoint(2, 2), 4326)::geography, '2019-04-18T00:00:00Z', 'observation'),
+          ('openstreetmap', 'node/42', '{}'::jsonb, ST_SetSRID(ST_MakePoint(2, 2), 4326)::geography, '2018-01-01T00:00:00Z', 'source_update')"#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO playground_source_links (playground_id, source, external_id, match_method) VALUES
+          ('graphql-test/enriched', 'sofiaplan', '06.129', 'proximity'),
+          ('graphql-test/enriched', 'openstreetmap', 'node/42', 'proximity')"#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -175,10 +208,12 @@ async fn enrichment_schema_keeps_current_sources_and_safe_defaults(pool: PgPool)
     .await
     .is_err());
 
-    sqlx::query("DELETE FROM source_playgrounds WHERE source = 'sofiaplan' AND external_id = '06.129'")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "DELETE FROM source_playgrounds WHERE source = 'sofiaplan' AND external_id = '06.129'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let (source_links,): (i64,) = sqlx::query_as(
         "SELECT count(*)::bigint FROM playground_source_links WHERE source = 'sofiaplan' AND external_id = '06.129'",
     )
@@ -408,6 +443,76 @@ async fn graphql_queries_use_postgis_and_combine_catalog_filters(pool: PgPool) {
     );
     assert_eq!(detail["data"]["found"]["source"]["license"], "ODbL-1.0");
     assert_eq!(detail["data"]["missing"], Value::Null);
+
+    let enriched = graphql(
+        &app,
+        r#"query {
+          playground(id: "graphql-test/enriched") {
+            id name address surface fenced ownership access fee
+            municipalStatus ordinanceCompliant repairs notes
+            neighborhoods { id name }
+            photos { url author license licenseUrl attribution sourceUrl }
+            photoUrls
+            source { id kind url updatedAt dateMeaning attribution license }
+            sources { id kind url updatedAt dateMeaning attribution license }
+            sourceValues { field value source sourceId date dateMeaning selected }
+          }
+        }"#,
+    )
+    .await;
+    assert_eq!(enriched["errors"], Value::Null, "{enriched}");
+    assert_eq!(
+        enriched["data"]["playground"],
+        json!({
+            "id": "graphql-test/enriched", "name": "Enriched", "address": "Park entrance",
+            "surface": "rubber", "fenced": false, "ownership": "municipal", "access": "public",
+            "fee": "free", "municipalStatus": "planned", "ordinanceCompliant": false,
+            "repairs": "Replace slide", "notes": "Inspection pending", "neighborhoods": [],
+            "photos": [{"url":"https://example.test/photo.jpg","author":"A Person","license":"CC BY 4.0",
+                "licenseUrl":"https://creativecommons.org/licenses/by/4.0/","attribution":"A Person / CC BY 4.0",
+                "sourceUrl":"https://commons.wikimedia.org/wiki/File:Photo.jpg"}],
+            "photoUrls": ["https://example.test/photo.jpg"],
+            "source": {"id":"openstreetmap/node/42","kind":"OPEN_STREET_MAP","url":"https://www.openstreetmap.org/node/42",
+                "updatedAt":"2018-01-01T00:00:00+00:00","dateMeaning":"SOURCE_UPDATE","attribution":"© OpenStreetMap contributors","license":"ODbL-1.0"},
+            "sources": [
+                {"id":"openstreetmap/node/42","kind":"OPEN_STREET_MAP","url":"https://www.openstreetmap.org/node/42",
+                    "updatedAt":"2018-01-01T00:00:00+00:00","dateMeaning":"SOURCE_UPDATE","attribution":"© OpenStreetMap contributors","license":"ODbL-1.0"},
+                {"id":"sofiaplan/06.129","kind":"SOFIA_PLAN","url":"https://urbandata.sofia.bg/dataset/playgrounds",
+                    "updatedAt":"2019-04-18T00:00:00+00:00","dateMeaning":"OBSERVATION","attribution":"SofiaPlan","license":"Reuse terms need confirmation"}
+            ],
+            "sourceValues": [
+                {"field":"fenced","value":"true","source":"OPEN_STREET_MAP","sourceId":"node/42",
+                    "date":"2018-01-01T00:00:00+00:00","dateMeaning":"SOURCE_UPDATE","selected":false},
+                {"field":"fenced","value":"false","source":"SOFIA_PLAN","sourceId":"06.129",
+                    "date":"2019-04-18T00:00:00+00:00","dateMeaning":"OBSERVATION","selected":true}
+            ]
+        })
+    );
+
+    sqlx::query("DELETE FROM playground_source_links WHERE playground_id = 'graphql-test/enriched' AND source = 'openstreetmap'")
+        .execute(&pool).await.unwrap();
+    let sofia_only = graphql(&app, r#"{ playground(id: "graphql-test/enriched") { source { kind url dateMeaning license } sources { kind } } }"#).await;
+    assert_eq!(
+        sofia_only["data"]["playground"],
+        json!({
+            "source": {"kind":"SOFIA_PLAN", "url":"https://urbandata.sofia.bg/dataset/playgrounds",
+                "dateMeaning":"OBSERVATION", "license":"Reuse terms need confirmation"},
+            "sources": [{"kind":"SOFIA_PLAN"}]
+        })
+    );
+
+    sqlx::query("UPDATE playgrounds SET source_values = '[{\"field\":\"fenced\",\"value\":\"secret-raw-json\"}]'::jsonb WHERE id = 'graphql-test/enriched'")
+        .execute(&pool).await.unwrap();
+    let malformed = graphql(
+        &app,
+        r#"{ playground(id: "graphql-test/enriched") { sourceValues { value } } }"#,
+    )
+    .await;
+    assert_eq!(
+        malformed["errors"][0]["message"],
+        "playground data is temporarily unavailable"
+    );
+    assert!(!malformed.to_string().contains("secret-raw-json"));
 
     clean(&pool).await;
 }
