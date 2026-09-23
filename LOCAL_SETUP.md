@@ -28,11 +28,22 @@ From the repository root:
 npm run start:local
 ```
 
-This starts the PostGIS database, GraphQL API, and Vite frontend, then waits
-for a successful frontend request and a real GraphQL query before reporting
-that the application is ready. It does not import playground data from
-Overpass automatically. Press `Ctrl+C` to stop the frontend; the Docker
-services and named database volume remain available for the next start.
+This starts PostGIS, the GraphQL API, and Vite, then checks the frontend and a
+real GraphQL query before reporting that the application is ready. It reuses
+the existing API image so normal starts do not rebuild Rust. On a first start,
+Compose builds the image if it is missing. To include backend or Dockerfile
+changes, rebuild explicitly with `docker compose up --build -d api`.
+
+Startup does not import playground data automatically. Press `Ctrl+C` to stop
+the frontend; the Docker services and named database volume remain available
+for the next start.
+
+Every checkout and Git worktree uses the same Compose project, services, and
+imported database. Use the same `.env` values in every worktree,
+especially `POSTGRES_PASSWORD`: changing the variable does not change the role
+password in an existing database volume. Schema migrations are shared too, so
+a migration in one branch affects the others. The first start against an empty
+database still requires the manual import below.
 
 The usual URLs are `http://127.0.0.1:5173/` and
 `http://127.0.0.1:3000/graphiql`.
@@ -114,6 +125,13 @@ catalog in one transaction. A failed fetch, validation, or database write exits
 with an error and preserves the prior catalog. Commons photo failures omit those
 photos without aborting the import. Overpass is a shared public service; run
 imports manually and respect its usage policy.
+
+All checkouts and Git worktrees share the repository's stable Compose project
+and database volume. Import once and the catalog is available in each worktree.
+Use matching `.env` values (especially `POSTGRES_PASSWORD`) in each worktree;
+Compose updates the same running services, but changing that variable does not
+rotate the password stored in the volume. Database schema changes are shared
+too; use care when switching branches with incompatible migrations.
 
 ## Environment variables
 

@@ -16,3 +16,4 @@ Update an existing technology file before creating a new one. Add a new file onl
 - [Node.js and GeoJSON](node-geojson.md)
 - [OpenStreetMap](openstreetmap.md)
 - [SofiaPlan](sofiaplan.md)
+- [Docker Compose](docker-compose.md)

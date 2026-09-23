@@ -64,7 +64,7 @@ function preflight() {
 function startCompose() {
   console.log("Starting PostGIS and GraphQL API...");
   composeStarted = true;
-  const result = run("docker", ["compose", "up", "--build", "-d", "db", "api"], {
+  const result = run("docker", ["compose", "up", "-d", "db", "api"], {
     stdio: "inherit",
   });
   if (result.status !== 0) {
