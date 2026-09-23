@@ -55,11 +55,30 @@ before creating new files.
 
 
 ## Subagent Strategy
-- The main context should be as clean as possible containing just the needed information
-- Choose the right model for the task with the appropriate effort level - do not just start agent with the same agent as the main session!
-- Use subagents liberally to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
+
+Default to delegation rather than doing exploratory work in the main context.
+
+MUST spawn subagents when:
+- researching unfamiliar code
+- locating relevant files across multiple areas
+- comparing 2+ approaches
+- investigating independent questions
+- reviewing an implementation
+- a task can be split into 2+ independent workstreams
+
+Do NOT use a subagent for:
+- trivial edits
+- one-file lookups
+- tasks requiring less than ~5 minutes of reasoning/work
+
+Before substantial work, explicitly ask:
+"Which parts of this task should be delegated?"
+
+Prefer cheaper/faster models for exploration and mechanical work.
+Reserve the main Sol agent for orchestration, difficult reasoning, and final synthesis.
+
+For independent workstreams, run subagents in parallel.
+Each subagent gets one narrowly scoped task.gents
 - One tack per subagent for focused execution
 
 ## Self-Improvement Loop

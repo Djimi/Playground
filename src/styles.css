@@ -85,7 +85,9 @@ h1 {
 
 .map-back:focus-visible,
 .details-close:focus-visible,
-.playground-details a:focus-visible {
+.playground-details a:focus-visible,
+.preview-action:focus-visible,
+.playground-preview a:focus-visible {
   outline: 3px solid #ef8354;
   outline-offset: 2px;
 }
@@ -115,7 +117,7 @@ h1 {
 
 .playground-preview-popup .leaflet-popup-content {
   margin: 0.65rem;
-  width: min(15rem, calc(100vw - 2rem)) !important;
+  width: min(18rem, calc(100vw - 3.5rem)) !important;
 }
 
 .playground-preview {
@@ -131,6 +133,70 @@ h1 {
 
 .playground-preview p {
   margin: 0.3rem 0 0;
+}
+
+.playground-muted,
+.playground-photo figcaption {
+  color: #52675d;
+  font-size: 0.78rem;
+}
+
+.playground-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.6rem 0;
+}
+
+.playground-chip {
+  padding: 0.3rem 0.5rem;
+  border-radius: 999px;
+  background: #e8f2e9;
+  color: #285a43;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.playground-warning {
+  padding: 0.55rem;
+  border-left: 4px solid #b78b15;
+  background: #fff4d3;
+  color: #5c4915;
+  font-size: 0.77rem;
+}
+
+.playground-warning strong {
+  font-size: inherit;
+}
+
+.preview-action,
+.detail-actions a {
+  display: block;
+  width: 100%;
+  margin-top: 0.7rem;
+  padding: 0.6rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: #286348;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 750;
+  text-align: center;
+  text-decoration: none;
+}
+
+.playground-photo {
+  min-width: 0;
+  margin: 0;
+}
+
+.playground-photo figcaption {
+  overflow-wrap: anywhere;
+}
+
+.playground-photo figcaption a {
+  color: #155e59;
 }
 
 .preview-photo {
@@ -189,6 +255,49 @@ h1 {
   margin: 0.25rem 0;
 }
 
+.detail-actions {
+  margin: 0.75rem 0;
+}
+
+.playground-details .detail-actions a {
+  color: white;
+}
+
+.detail-facts {
+  margin: 0;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 35%) minmax(0, 1fr);
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #dbe4df;
+  overflow-wrap: anywhere;
+}
+
+.detail-row dt {
+  font-weight: 700;
+}
+
+.detail-row dd {
+  margin: 0;
+}
+
+.source-history {
+  overflow-wrap: anywhere;
+}
+
+.source-history li,
+.source-entry {
+  margin: 0.5rem 0;
+}
+
+.source-entry {
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
 .playground-details ul {
   margin: 0.25rem 0 0;
   padding-left: 1.25rem;
@@ -201,7 +310,7 @@ h1 {
 
 .playground-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(8rem, 100%), 1fr));
   gap: 0.45rem;
 }
 

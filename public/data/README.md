@@ -1,4 +1,4 @@
-# Sofia OpenStreetMap data
+# Sofia playground source data
 
 ## Neighborhood boundaries
 
@@ -23,10 +23,13 @@ not imported as neighborhoods by the backend.
 
 ## Playground catalog
 
-The backend importer fetches Sofia features tagged `leisure=playground` from
-OpenStreetMap through Overpass. It normalizes locations, equipment, age tags,
-images, and source metadata, then associates each playground with every bundled
-neighborhood polygon that covers its location.
+The backend importer fetches Sofia playgrounds from OpenStreetMap through
+Overpass and the [SofiaPlan playground dataset](https://urbandata.sofia.bg/dataset/playgrounds).
+It retains both source records, merges only clear nearby matches, and associates
+canonical playgrounds with every covering bundled neighborhood polygon.
+SofiaPlan's `2019-04-18` date is a source-wide observation, while OSM timestamps
+are source updates. See the [SofiaPlan](../../docs/gotchas/sofiaplan.md) and
+[OpenStreetMap](../../docs/gotchas/openstreetmap.md) notes for source quirks.
 
 Run from repository root after starting PostGIS:
 
@@ -34,10 +37,12 @@ Run from repository root after starting PostGIS:
 docker compose run --rm api import-playgrounds
 ```
 
-The database catalog is a derived OpenStreetMap database and remains subject to
-ODbL 1.0. Any UI or data export that uses it must keep visible attribution:
+The OpenStreetMap contribution remains subject to ODbL 1.0. Any UI or data
+export that uses it must keep visible attribution:
 `© OpenStreetMap contributors`, linked to
 [OpenStreetMap copyright and license](https://www.openstreetmap.org/copyright).
-Each GraphQL playground record also exposes its source URL, attribution, and
-license. Optional OpenStreetMap tags are incomplete; missing capabilities, ages,
-names, or images must not be inferred.
+Each GraphQL playground record exposes its linked source URLs, attribution, and
+licence/terms status. SofiaPlan reuse metadata needs written clarification
+before commercial launch; do not assume ODbL covers SofiaPlan. Only directly
+referenced Commons photos with verified reusable metadata are attached. Missing
+capabilities, ages, names, surface, current condition, or images are not inferred.

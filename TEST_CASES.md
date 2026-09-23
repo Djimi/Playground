@@ -61,7 +61,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | POINTER-005 | Medium | Click an area, then hover South Park or Sofia Zoo and move away. | The destination preview is visible and clears after preview ends. | Hover regression follow-up |
 | POINTER-006 | Medium | Move pointer directly between adjacent polygons. | Highlight follows the pointer; previous polygon does not remain highlighted. | Hover regression follow-up |
 | POINTER-007 | High | Click South Park, then Sofia Zoo. | Each real facility polygon fits the map without persistent styling; similarly named neighborhood polygons do not intercept the click. | User request |
-| POINTER-008 | High | Open named and unnamed playground pins. | Popup shows safe name fallback, capabilities when present, and an OpenStreetMap link. | User request |
+| POINTER-008 | High | Preview named and unnamed playground pins. | Popup shows a safe name fallback, recorded equipment, and a View details action. | User request |
 | POINTER-009 | High | Focus one area with `Tab`, then briefly move the pointer across another area. | The focused area keeps its highlight and heading; the unrelated area returns to default styling after the pointer leaves. | OpenSpec preview-state regression |
 
 ## Playground Preview and Details
@@ -81,8 +81,17 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | PLAYGROUND-011 | High | Hover a playground pin, then move the pointer to empty map space without clicking. | The compact preview closes and the pin returns to default neutral blue; no pin stays in preview styling. | User report and `src/main.js` |
 | PLAYGROUND-012 | High | Open three different playground pins one after another. | The previous pins return to neutral blue and exactly one pin—the current playground—uses orange selected styling. | OpenSpec selection-state regression |
 | PLAYGROUND-013 | High | Focus one playground pin with `Tab`, then briefly move the pointer across another pin. | The focused pin keeps its preview and the unrelated pin returns to neutral styling after the pointer leaves. | OpenSpec preview-state regression |
-| PLAYGROUND-014 | High | Preview pins at the map edge and below the fixed header. | The compact preview auto-pans into the usable map viewport without clipped content or disruptive animation. | OpenSpec popup-boundary regression |
-| PLAYGROUND-015 | High | Open details for a named playground with one valid and one blocked photo URL. | Each image uses the playground name in its alternative text; the blocked image becomes an explicit `Photo unavailable` state. | OpenSpec photo-fallback regression |
+| PLAYGROUND-014 | High | Preview pins at the map edge and below the fixed header at 320, 768, and 1280 CSS px. | The entire compact preview border stays inside the viewport after auto-pan, without clipped content or disruptive animation. | OpenSpec popup-boundary regression |
+| PLAYGROUND-015 | High | Open details for a named playground with one valid and one blocked structured photo. | Each image uses the playground name in its alternative text; the blocked image becomes an explicit `Photo unavailable` state while attribution remains. | OpenSpec photo-fallback regression |
+| PLAYGROUND-016 | High | Preview and open a fully enriched playground. | Popup shows licensed photo, all neighborhoods, age/equipment chips, dated municipal warning, rating empty state, and View details; details show address, coordinates, directions, every recorded fact, history, and all sources. | Enrichment flow browser check |
+| PLAYGROUND-017 | High | Preview and open a playground with no photo and missing optional facts. | `No photo yet`, `Age not recorded`, `No equipment recorded`, and `Unknown` are visible where appropriate; ratings and reviews remain empty. | Enrichment flow browser check |
+| PLAYGROUND-018 | High | Open records with `false` fencing/compliance and a dated municipal status. | `No` and `Not compliant` remain distinct from `Unknown`; warning says `May be outdated` and labels the 2019 SofiaPlan date as an observation. | Formatting tests and browser check |
+| PLAYGROUND-019 | High | Open a record with conflicting source values. | Selected and older/conflicting values each show source identity and correctly labeled date; all source links, attribution, and licences are visible. | Enrichment flow browser check |
+| PLAYGROUND-020 | High | Open a record with a Commons photo, then block the image response. | Attribution and licence link remain visible; failed image becomes `Photo unavailable`. | Enrichment flow browser check |
+| PLAYGROUND-021 | High | Activate Directions. | OpenStreetMap directions opens for the playground coordinates without prompting for visitor location. | Enrichment flow browser check |
+| PLAYGROUND-022 | High | At 320, 768, and 1280 CSS px, hover a pin near an edge and let the popup auto-pan. Move away to dismiss it, re-hover the relocated pin, then cross the pin-to-popup gap and click View details. Focus a pin, Tab to View details, Shift+Tab back, Tab forward again, then Tab past the button; also open details with Enter/Space directly on the pin. | Popup stays open through auto-pan and the re-hover gap crossing; reverse Tab returns to the pin, forward Tab exits to the next map control, and button/direct activation opens details without a map click closing them. | Enrichment interaction regression |
+| PLAYGROUND-023 | High | Keep keyboard focus on View details and hover another pin. | The focused popup stays visible until focus leaves it; unrelated hover does not replace it. | Enrichment interaction regression |
+| PLAYGROUND-024 | High | Let a pointer-only popup auto-pan, keep the pointer still, then Tab to a different playground marker. | The newly focused marker replaces the old popup and Tab reaches its View details button. | Enrichment interaction regression |
 
 ## Focused Map Navigation
 
@@ -104,7 +113,7 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | KEYBOARD-002 | High | Focus Lozenets and press `Enter`. | Map fits Lozenets without selected styling and the page does not scroll. | Source and browser review |
 | KEYBOARD-003 | High | Focus Mladost 1 and press `Space`. | Map fits Mladost 1 without page scrolling or persistent area styling. | Source and browser review |
 | KEYBOARD-004 | High | Keyboard-activate two polygons, then blur focus. | Each activation fits its polygon; previews clear on blur. | Source and browser review |
-| KEYBOARD-005 | High | Focus a playground pin and press `Enter` or `Space`. | Its popup opens without scrolling the page. | Source and browser review |
+| KEYBOARD-005 | High | Focus a playground pin and press `Enter` or `Space`. | Its details open without scrolling the page. | Source and browser review |
 | ACCESS-001 | Medium | Change neighborhood selection. | Header name update is announced through the live region. | Source review |
 
 ## Responsive Layout

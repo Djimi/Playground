@@ -15,3 +15,4 @@ Update an existing technology file before creating a new one. Add a new file onl
 - [Vite](vite.md)
 - [Node.js and GeoJSON](node-geojson.md)
 - [OpenStreetMap](openstreetmap.md)
+- [SofiaPlan](sofiaplan.md)

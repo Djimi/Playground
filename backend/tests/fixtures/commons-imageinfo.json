@@ -1,0 +1,74 @@
+{
+  "query": {
+    "pages": [
+      {
+        "title": "File:CC-BY-SA.jpg",
+        "imageinfo": [{
+          "url": "https://upload.wikimedia.org/example/cc-by-sa.jpg",
+          "descriptionurl": "https://commons.wikimedia.org/wiki/File:CC-BY-SA.jpg",
+          "extmetadata": {
+            "Artist": { "value": "<a href=\"/wiki/User:Example\">Example Author</a>" },
+            "Credit": { "value": "<span>Photo by <b>Example Author</b></span>" },
+            "LicenseShortName": { "value": "CC BY-SA 4.0" },
+            "LicenseUrl": { "value": "https://creativecommons.org/licenses/by-sa/4.0/" },
+            "UsageTerms": { "value": "Creative Commons Attribution-Share Alike 4.0" },
+            "NonFree": { "value": "false" }
+          }
+        }]
+      },
+      {
+        "title": "File:Public-domain.jpg",
+        "imageinfo": [{
+          "url": "https://upload.wikimedia.org/example/public-domain.jpg",
+          "descriptionurl": "https://commons.wikimedia.org/wiki/File:Public-domain.jpg",
+          "extmetadata": {
+            "Artist": { "value": "Public Domain Author" },
+            "LicenseShortName": { "value": "Public domain" },
+            "LicenseUrl": { "value": "https://creativecommons.org/publicdomain/mark/1.0/" },
+            "UsageTerms": { "value": "This work is in the public domain" },
+            "NonFree": { "value": "false" }
+          }
+        }]
+      },
+      {
+        "title": "File:NC.jpg",
+        "imageinfo": [{
+          "url": "https://upload.wikimedia.org/example/nc.jpg",
+          "descriptionurl": "https://commons.wikimedia.org/wiki/File:NC.jpg",
+          "extmetadata": {
+            "Artist": { "value": "NC Author" },
+            "LicenseShortName": { "value": "CC BY-NC 4.0" },
+            "LicenseUrl": { "value": "https://creativecommons.org/licenses/by-nc/4.0/" },
+            "UsageTerms": { "value": "Creative Commons Attribution-NonCommercial 4.0" },
+            "NonFree": { "value": "false" }
+          }
+        }]
+      },
+      {
+        "title": "File:Missing-license.jpg",
+        "imageinfo": [{
+          "url": "https://upload.wikimedia.org/example/missing-license.jpg",
+          "descriptionurl": "https://commons.wikimedia.org/wiki/File:Missing-license.jpg",
+          "extmetadata": {
+            "Artist": { "value": "Unknown License Author" },
+            "NonFree": { "value": "false" }
+          }
+        }]
+      },
+      {
+        "title": "File:Non-free.jpg",
+        "imageinfo": [{
+          "url": "https://upload.wikimedia.org/example/non-free.jpg",
+          "descriptionurl": "https://commons.wikimedia.org/wiki/File:Non-free.jpg",
+          "extmetadata": {
+            "Artist": { "value": "Non-free Author" },
+            "LicenseShortName": { "value": "CC BY 4.0" },
+            "LicenseUrl": { "value": "https://creativecommons.org/licenses/by/4.0/" },
+            "UsageTerms": { "value": "Creative Commons Attribution 4.0" },
+            "NonFree": { "value": "true" }
+          }
+        }]
+      }
+    ]
+  }
+}

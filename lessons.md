@@ -13,3 +13,17 @@
 - For OpenSpec onboarding, prefer a small visible bug the user can reproduce before and after the fix; do not lead with an abstract quality issue.
 - When a skill guardrail conflicts with the user's explicit end-to-end instruction, state the conflict and ask once; after the user confirms, treat the whole requested chain as authorized and do not re-ask per phase.
 - Once the user says "go" on a multi-step chain (apply, archive, commit, PR, merge), execute every step in the same turn; a completed intermediate tool call is not a stopping point.
+- For licence allowlists, tokenize and match known forms exactly; never use substring or prefix checks for policy decisions.
+- When mapping stored provenance, trace every value the producer emits, including JSON null for unknown equipment counts; test both detail and list GraphQL paths before rejecting a value as malformed.
+- For linked Commons photos, show both Artist and Credit when they differ; one field must not hide the other.
+- For a keyboard-actionable map popup, check actual pane tab order, route Tab from the focused marker to the popup action, and preserve a focus-owned popup while unrelated markers are hovered.
+- At narrow widths, account for Leaflet's popup wrapper and content margins when setting a viewport-based content width; document width alone does not reveal popup clipping.
+- Leaflet popup auto-pan can trigger marker mouseout without visitor pointer movement; keep pointer-only preview ownership until subsequent pointer motion settles or the popup is entered.
+- Clear pointer-only auto-pan ownership when keyboard focus moves to a marker; a pointer hold must not suppress the focused marker's popup.
+- Account for the physical gap between a marker and popup tip after re-hover; zero-delay mouseout closes before the pointer can cross it.
+- Prefer useful stale official data over hiding it when the UI shows the observation date, source, and a clear warning that it may be outdated.
+- Make visual design alternatives materially different; near-identical mockups waste the comparison and can hide rendering problems.
+- Before sharing a local visualization URL, verify the port is listening and an HTTP request succeeds; `server-info` alone can be stale.
+- When recurring data refresh and deployment are out of scope, limit design to one-time population and do not introduce scheduler or hosting decisions.
+- Keep the existing `No ratings yet` and `No reviews yet` placeholders until the later community contribution feature replaces them.
+- For multi-source imports, retain both source records and their canonical mapping; do not keep only merged winners when debugging or re-merging may be needed.

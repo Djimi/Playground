@@ -1,0 +1,34 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nobekt_new": "06.129",
+        "new_mestopolozh": "ул. Тест 1",
+        "new_vazrgrupi": "3 до 12",
+        "new_ograda": "0",
+        "new_lulki": "0"
+      },
+      "geometry": { "type": "MultiPoint", "coordinates": [[23.3444, 42.7070]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nobekt_new": "06.130",
+        "new_vazrgrupi": "0 до 3; 3 до 12",
+        "new_ograda": "1",
+        "new_lulki": "2"
+      },
+      "geometry": { "type": "MultiPoint", "coordinates": [[23.3454, 42.7080]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nobekt_new": "06.131",
+        "new_label": "не се показват на картата"
+      },
+      "geometry": { "type": "MultiPoint", "coordinates": [[23.3464, 42.7090]] }
+    }
+  ]
+}

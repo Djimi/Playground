@@ -93,15 +93,27 @@ GraphQL clients send the same query with `POST http://127.0.0.1:3000/graphql`.
 
 ## Import playgrounds
 
-With PostGIS running, fetch a complete Sofia playground snapshot from Overpass:
+With PostGIS running, fetch one complete Sofia playground snapshot from
+OpenStreetMap and SofiaPlan:
 
 ```bash
 docker compose run --rm api import-playgrounds
 ```
 
-The importer validates the response before replacing the current snapshot in
-one transaction. A failed or partial import keeps the prior catalog. Overpass
-is a shared public service; run imports manually and respect its usage policy.
+This is a one-time/manual operator action; there is no scheduled import. The
+command reports OSM and SofiaPlan source records, canonical playgrounds, clear
+matches, ambiguous source records, excluded source records, accepted/rejected
+Commons photos, neighborhoods, and memberships. Source counts include retained
+records excluded from the canonical catalog. Ambiguous records remain separate;
+clear matches merge two source records into one canonical playground. Photo
+counts describe directly referenced Commons files accepted or rejected by
+licence/metadata checks, not all playgrounds with photos.
+
+The importer validates both primary sources before replacing the current
+catalog in one transaction. A failed fetch, validation, or database write exits
+with an error and preserves the prior catalog. Commons photo failures omit those
+photos without aborting the import. Overpass is a shared public service; run
+imports manually and respect its usage policy.
 
 ## Environment variables
 
@@ -113,6 +125,8 @@ is a shared public service; run imports manually and respect its usage policy.
 | `FRONTEND_ORIGIN` | `http://localhost:5173` | Only direct browser origin allowed by API CORS |
 | `VITE_API_URL` | `/graphql` | Browser API URL; the Vite dev server proxies this to `API_PORT` |
 | `OVERPASS_URL` | `https://overpass-api.de/api/interpreter` | Import source endpoint |
+| `SOFIAPLAN_URL` | `https://api.sofiaplan.bg/datasets/5` | SofiaPlan GeoJSON endpoint |
+| `COMMONS_API_URL` | `https://commons.wikimedia.org/w/api.php` | Directly referenced Commons photo metadata endpoint |
 | `DATABASE_URL` | Set by Compose | Required PostgreSQL connection for direct Rust runs |
 | `API_ADDR` | `0.0.0.0:3000` | API bind address inside its runtime |
 | `NEIGHBORHOODS_PATH` | Set by Compose | Curated GeoJSON read by the importer |
@@ -120,7 +134,7 @@ is a shared public service; run imports manually and respect its usage policy.
 Inside Compose, `DATABASE_URL`, `API_ADDR`, and `NEIGHBORHOODS_PATH` are set for
 the containers. When running Rust commands directly, set `DATABASE_URL`; the API
 also accepts `API_ADDR` and `FRONTEND_ORIGIN`, while the importer accepts
-`OVERPASS_URL` and `NEIGHBORHOODS_PATH`.
+`OVERPASS_URL`, `SOFIAPLAN_URL`, `COMMONS_API_URL`, and `NEIGHBORHOODS_PATH`.
 
 ## Verify changes
 

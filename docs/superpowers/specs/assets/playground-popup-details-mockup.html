@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Approved playground popup and details mockup</title>
+  <style>
+    :root {
+      color: #1d3328;
+      background: #f4f7f3;
+      font: 16px/1.45 system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 960px; margin: auto; padding: 32px 20px 56px; }
+    h1 { margin: 0 0 6px; font-size: clamp(1.6rem, 4vw, 2.2rem); }
+    .intro { margin: 0 0 28px; color: #5b6b62; }
+    .flow { display: grid; grid-template-columns: minmax(260px, 320px) minmax(340px, 1fr); gap: 32px; align-items: start; }
+    .stage { margin: 0 0 8px; color: #53665d; font-size: .78rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .panel { overflow: hidden; border: 1px solid #cbd7cf; border-radius: 18px; background: white; box-shadow: 0 12px 30px rgba(25, 55, 40, .12); }
+    .map { padding: 46px 18px 16px; background: #dce8d7; color: #2f5945; font-size: .82rem; font-weight: 750; }
+    .photo { display: grid; min-height: 110px; place-items: center; background: #e5ebe4; color: #53675c; font-size: .75rem; font-weight: 750; letter-spacing: .04em; }
+    .body { padding: 16px; }
+    .body h2 { margin: 14px 0 4px; color: #173d2c; font-size: 1.25rem; }
+    .muted { margin: 0 0 12px; color: #6a776f; font-size: .82rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+    .chip { padding: 6px 9px; border-radius: 999px; background: #edf5ef; color: #285a43; font-size: .75rem; font-weight: 700; }
+    .warning { padding: 9px; border-left: 4px solid #d4a62f; background: #fff7df; color: #665216; font-size: .76rem; }
+    .button { display: block; width: 100%; margin-top: 12px; padding: 10px; border: 0; border-radius: 9px; background: #286348; color: white; font: inherit; font-size: .82rem; font-weight: 750; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
+    .secondary { padding: 8px; border: 1px solid #b7c8be; border-radius: 8px; background: white; color: #285a43; font-weight: 700; }
+    .row { display: grid; grid-template-columns: 112px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px solid #e7ece8; font-size: .82rem; }
+    .section { margin: 18px 0 7px; color: #53665d; font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .empty { padding: 10px; border: 1px dashed #aabbb1; border-radius: 8px; color: #596b61; font-size: .8rem; }
+    .source { margin: 8px 0; color: #586960; font-size: .75rem; }
+    @media (max-width: 740px) {
+      .flow { grid-template-columns: minmax(0, 1fr); }
+      .panel { max-width: 430px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Approved playground information flow</h1>
+    <p class="intro">Popup answers “is this suitable?” Details show every sourced fact.</p>
+
+    <div class="flow">
+      <section aria-labelledby="popup-label">
+        <p class="stage" id="popup-label">1. Pin popup</p>
+        <div class="panel">
+          <div class="map">Selected playground on map</div>
+          <div class="body">
+            <div class="photo">LICENSED PHOTO OR “NO PHOTO YET”</div>
+            <h2>South Park playground</h2>
+            <p class="muted">Lozenets · 650 m away when location is available</p>
+            <div class="chips">
+              <span class="chip">Ages 3–12</span>
+              <span class="chip">2 swings</span>
+              <span class="chip">Slide</span>
+            </div>
+            <div class="warning"><strong>Municipal record: Major repair</strong><br>Recorded April 2019. May be outdated.</div>
+            <p class="muted" style="margin-top: 10px">No ratings yet</p>
+            <button class="button" type="button">View details</button>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="details-label">
+        <p class="stage" id="details-label">2. Details after tap</p>
+        <div class="panel">
+          <div class="photo">LICENSED PHOTO GALLERY OR EMPTY STATE</div>
+          <div class="body">
+            <h2>South Park playground</h2>
+            <p class="muted">Example address, Lozenets, Sofia</p>
+            <div class="actions">
+              <button class="secondary" type="button">Directions</button>
+              <button class="secondary" type="button">Share</button>
+            </div>
+
+            <p class="section">Play information</p>
+            <div class="row"><strong>Age</strong><span>3–12 years</span></div>
+            <div class="row"><strong>Equipment</strong><span>2 swings, slide, sandpit</span></div>
+            <div class="row"><strong>Surface</strong><span>Rubber</span></div>
+            <div class="row"><strong>Fenced</strong><span>Yes</span></div>
+            <div class="row"><strong>Ownership</strong><span>Municipal</span></div>
+            <div class="row"><strong>Access</strong><span>Public · free</span></div>
+
+            <p class="section">Historical municipal record</p>
+            <div class="warning"><strong>Major repair</strong> · SofiaPlan, April 2019<br>Historical record. Current state may differ.</div>
+
+            <p class="section">Community</p>
+            <div class="empty">No ratings yet<br>No reviews yet</div>
+
+            <p class="section">Sources</p>
+            <p class="source"><strong>Selected equipment:</strong> OpenStreetMap source update, September 2026</p>
+            <p class="source"><strong>Older equipment record:</strong> SofiaPlan observation, April 2019</p>
+            <p class="source">Photo attribution and licence appear here when a photo exists.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

@@ -1,6 +1,7 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./styles.css";
+import { displayedSources, formatAge, formatEquipment, formatKnown, formatMunicipalStatus, formatNeighborhoods, formatPhotoCredit, formatSourceDate, selectedSourceValue } from "./playground-format.js";
 
 const SOFIA_CENTER = [42.6977, 23.3219];
 const API_URL = import.meta.env.VITE_API_URL ?? "/graphql";
@@ -17,10 +18,11 @@ const PLAYGROUNDS_QUERY = `
       location { longitude latitude }
       minAge
       maxAge
-      photoUrls
-      capabilities
+      neighborhoods { name }
+      photos { url author license licenseUrl attribution sourceUrl }
       equipment { capability count }
-      source { url }
+      municipalStatus
+      sourceValues { field value source sourceId date dateMeaning selected }
     }
   }
 `;
@@ -32,10 +34,14 @@ const PLAYGROUND_DETAIL_QUERY = `
       location { longitude latitude }
       minAge
       maxAge
-      photoUrls
-      capabilities
+      neighborhoods { name }
+      address surface fenced ownership access fee
+      municipalStatus ordinanceCompliant repairs notes
+      photos { url author license licenseUrl attribution sourceUrl }
       equipment { capability count }
-      source { id url updatedAt attribution license }
+      source { id kind url updatedAt dateMeaning attribution license }
+      sources { id kind url updatedAt dateMeaning attribution license }
+      sourceValues { field value source sourceId date dateMeaning selected }
     }
   }
 `;
@@ -65,16 +71,6 @@ const SELECTED_STYLE = {
   fillOpacity: 1,
   radius: 16,
   weight: 4,
-};
-const CAPABILITY_LABELS = {
-  CLIMBING_FRAME: "Climbing frame",
-  PLAYHOUSE: "Playhouse",
-  ROUNDABOUT: "Roundabout",
-  SANDPIT: "Sandpit",
-  SEESAW: "Seesaw",
-  SLIDE: "Slide",
-  SPRINGY: "Springy",
-  SWING: "Swing",
 };
 
 const mapElement = document.querySelector("#map");
@@ -108,6 +104,8 @@ let playgroundsLoading = false;
 let detailRequest;
 let previewPopup;
 let previewMarker;
+let previewSyncTimer;
+let previewAutoPanPending = false;
 let detailsReturnFocus;
 let suppressFocusPreview = false;
 let hoveredArea;
@@ -158,7 +156,16 @@ function closePreviewPopup() {
   }
   const marker = previewMarker;
   previewMarker = undefined;
+  previewAutoPanPending = false;
   if (marker) updateMarkerStyle(marker);
+}
+
+function schedulePreviewSync(delay = 0) {
+  clearTimeout(previewSyncTimer);
+  previewSyncTimer = setTimeout(() => {
+    previewSyncTimer = undefined;
+    syncPlaygroundPreview();
+  }, delay);
 }
 
 function syncAreaPreview() {
@@ -176,8 +183,12 @@ function syncPlaygroundPreview() {
     return;
   }
 
+  const popupElement = previewPopup?.getElement();
+  if (popupElement?.contains(document.activeElement)) return;
+  if (previewAutoPanPending) return;
   const active = focusedPlayground ?? hoveredPlayground;
   if (!active) {
+    if (popupElement?.matches(":hover")) return;
     closePreviewPopup();
     return;
   }
@@ -189,6 +200,7 @@ function syncPlaygroundPreview() {
   closePreviewPopup();
   previewMarker = active.marker;
   updateMarkerStyle(active.marker);
+  const previewContent = playgroundPreview(active.playground, active.marker);
   previewPopup = L.popup({
     autoPan: true,
     autoPanPaddingTopLeft: [16, 128],
@@ -200,15 +212,46 @@ function syncPlaygroundPreview() {
     offset: [0, -12],
   })
     .setLatLng(active.marker.getLatLng())
-    .setContent(playgroundPreview(active.playground))
+    .setContent(previewContent)
     .openOn(map);
+  const openedPopupElement = previewPopup.getElement();
+  openedPopupElement.addEventListener("mouseenter", () => {
+    previewAutoPanPending = false;
+    clearTimeout(previewSyncTimer);
+  });
+  openedPopupElement.addEventListener("mouseleave", schedulePreviewSync);
+  openedPopupElement.addEventListener("focusin", () => {
+    previewAutoPanPending = false;
+    clearTimeout(previewSyncTimer);
+  });
+  openedPopupElement.addEventListener("focusout", schedulePreviewSync);
 }
 
 function clearPlaygroundPreview() {
+  clearTimeout(previewSyncTimer);
+  previewSyncTimer = undefined;
   hoveredPlayground = undefined;
   focusedPlayground = undefined;
   closePreviewPopup();
 }
+
+map.on("autopanstart", () => {
+  if (previewMarker && !focusedPlayground) previewAutoPanPending = true;
+});
+mapElement.addEventListener("pointermove", () => {
+  if (!previewAutoPanPending) return;
+  clearTimeout(previewSyncTimer);
+  // ponytail: wait for pointer motion to settle; revisit if slow gap crossings still close the popup.
+  previewSyncTimer = setTimeout(() => {
+    previewAutoPanPending = false;
+    syncPlaygroundPreview();
+  }, 120);
+});
+mapElement.addEventListener("pointerleave", () => {
+  if (!previewAutoPanPending) return;
+  previewAutoPanPending = false;
+  schedulePreviewSync();
+});
 
 function setDetailsModalOpen(open) {
   details.hidden = !open;
@@ -319,30 +362,34 @@ function addAreaData(url, statusKey, fitMap = false) {
     });
 }
 
-function capabilityLabel(value) {
-  return CAPABILITY_LABELS[value] ?? value.toLowerCase().replaceAll("_", " ");
+function textElement(tag, value, className) {
+  const element = document.createElement(tag);
+  element.textContent = value;
+  if (className) element.className = className;
+  return element;
 }
 
-function formatAge(minAge, maxAge) {
-  if (minAge != null && maxAge != null) return `${minAge}–${maxAge} years`;
-  if (minAge != null) return `${minAge}+ years`;
-  if (maxAge != null) return `Up to ${maxAge} years`;
-  return "Age not recorded";
+function safeUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
-function equipmentItems(playground) {
-  return playground.equipment ?? playground.capabilities?.map((capability) => ({ capability, count: null })) ?? [];
-}
-
-function equipmentSummary(playground) {
-  const items = equipmentItems(playground);
-  if (!items.length) return "No equipment recorded";
-  return items
-    .map(({ capability, count }) => `${capabilityLabel(capability)}${count == null ? "" : ` (${count})`}`)
-    .join(", ");
+function externalLink(label, url) {
+  const href = safeUrl(url);
+  if (!href) return textElement("span", label);
+  const link = textElement("a", label);
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  return link;
 }
 
 function image(url, alt, className) {
+  if (!safeUrl(url)) return textElement("div", "Photo unavailable", `${className} photo-unavailable`);
   const element = document.createElement("img");
   element.src = url;
   element.alt = alt;
@@ -357,37 +404,103 @@ function image(url, alt, className) {
   return element;
 }
 
-function playgroundPreview(playground) {
+function photoFigure(photo, label, className, linked = true) {
+  const figure = document.createElement("figure");
+  figure.className = "playground-photo";
+  figure.append(image(photo.url, `${label} photo`, className));
+  const caption = document.createElement("figcaption");
+  caption.append(linked ? externalLink(formatPhotoCredit(photo), photo.sourceUrl) : textElement("span", formatPhotoCredit(photo)));
+  caption.append(" · ", linked ? externalLink(photo.license, photo.licenseUrl) : textElement("span", photo.license));
+  figure.append(caption);
+  return figure;
+}
+
+function nextMapTabStop(marker) {
+  const popupElement = previewPopup?.getElement();
+  const focusable = [...document.querySelectorAll("button:not([disabled]), a[href], [tabindex='0']")]
+    .filter((element) => !element.closest("[hidden], [inert]") && !popupElement?.contains(element));
+  return focusable[focusable.indexOf(marker.getElement()) + 1];
+}
+
+function sourceName(source) {
+  return source === "SOFIA_PLAN" ? "SofiaPlan" : "OpenStreetMap";
+}
+
+function historicalWarning(playground) {
+  if (![playground.municipalStatus, playground.repairs, playground.ordinanceCompliant, playground.notes].some((value) => value != null)) return null;
+  const selected = selectedSourceValue(playground.sourceValues ?? [], "municipal_status");
+  const source = playground.sources?.find((item) => item.kind === "SOFIA_PLAN");
+  const date = selected?.date ?? source?.updatedAt;
+  const meaning = selected?.dateMeaning ?? source?.dateMeaning;
+  const warning = document.createElement("div");
+  warning.className = "playground-warning";
+  warning.append(textElement("strong", `Historical municipal record${playground.municipalStatus ? `: ${playground.municipalStatus}` : ""}`));
+  warning.append(textElement("p", `${formatSourceDate(date, meaning)}. May be outdated; current conditions may differ.`));
+  return warning;
+}
+
+function playgroundPreview(playground, marker) {
   const content = document.createElement("article");
   content.className = "playground-preview";
   const label = playground.name ?? "Unnamed playground";
-  if (playground.photoUrls?.[0]) {
-    content.append(image(playground.photoUrls[0], `${label} photo`, "preview-photo"));
-  }
-  const title = document.createElement("strong");
-  title.textContent = label;
-  content.append(title);
-
-  const age = document.createElement("p");
-  age.textContent = `Recommended age: ${formatAge(playground.minAge, playground.maxAge)}`;
-  content.append(age);
-
-  const equipment = document.createElement("p");
-  equipment.textContent = equipmentSummary(playground);
-  content.append(equipment);
-
-  const rating = document.createElement("p");
-  rating.textContent = "No ratings yet";
-  content.append(rating);
+  content.append(playground.photos?.[0]
+    ? photoFigure(playground.photos[0], label, "preview-photo", false)
+    : textElement("div", "No photo yet", "preview-photo photo-unavailable"));
+  content.append(textElement("strong", label));
+  content.append(textElement("p", formatNeighborhoods(playground.neighborhoods ?? []), "playground-muted"));
+  const chips = document.createElement("div");
+  chips.className = "playground-chips";
+  chips.append(textElement("span", formatAge(playground.minAge, playground.maxAge), "playground-chip"));
+  chips.append(textElement("span", formatEquipment(playground.equipment), "playground-chip"));
+  content.append(chips);
+  const warning = playground.municipalStatus != null ? historicalWarning(playground) : null;
+  if (warning) content.append(warning);
+  else content.append(textElement("p", formatMunicipalStatus(playground.municipalStatus), "playground-muted"));
+  content.append(textElement("p", "No ratings yet", "playground-muted"));
+  const button = textElement("button", "View details", "preview-action");
+  button.type = "button";
+  L.DomEvent.disableClickPropagation(button);
+  button.addEventListener("click", (event) => {
+    L.DomEvent.stopPropagation(event);
+    openDetails(playground, marker);
+  });
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    const target = event.shiftKey ? marker.getElement() : nextMapTabStop(marker);
+    if (!target) return;
+    event.preventDefault();
+    target.focus();
+  });
+  content.append(button);
   return content;
+}
+
+function detailSection(title) {
+  const section = document.createElement("section");
+  section.append(textElement("h3", title));
+  return section;
+}
+
+function detailRow(list, label, value) {
+  const row = document.createElement("div");
+  row.className = "detail-row";
+  row.append(textElement("dt", label), textElement("dd", value ?? "Unknown"));
+  list.append(row);
+}
+
+function sourceValueText(value) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed == null ? "Unknown" : typeof parsed === "object" ? JSON.stringify(parsed) : String(parsed);
+  } catch {
+    return value;
+  }
 }
 
 function renderDetails(playground) {
   detailsContent.replaceChildren();
   if (!playground) {
-    const message = document.createElement("p");
-    message.textContent = "Playground details are unavailable.";
-    detailsContent.append(message);
+    detailsContent.append(textElement("p", "Playground details are unavailable."));
     return;
   }
 
@@ -396,59 +509,73 @@ function renderDetails(playground) {
 
   const gallery = document.createElement("div");
   gallery.className = "playground-gallery";
-  if (playground.photoUrls?.length) {
-    for (const url of playground.photoUrls) gallery.append(image(url, `${label} photo`, "detail-photo"));
+  if (playground.photos?.length) {
+    for (const photo of playground.photos) gallery.append(photoFigure(photo, label, "detail-photo"));
   } else {
-    const empty = document.createElement("p");
-    empty.textContent = "No photos recorded";
-    gallery.append(empty);
+    gallery.append(textElement("p", "No photo yet", "photo-unavailable"));
   }
   detailsContent.append(gallery);
+  detailsContent.append(textElement("p", playground.address ?? "Address unknown", "playground-muted"));
+  detailsContent.append(textElement("p", formatNeighborhoods(playground.neighborhoods ?? []), "playground-muted"));
+  const { latitude, longitude } = playground.location;
+  detailsContent.append(textElement("p", `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`, "playground-muted"));
+  const actions = document.createElement("div");
+  actions.className = "detail-actions";
+  actions.append(externalLink("Directions in OpenStreetMap", `https://www.openstreetmap.org/directions?route=;${latitude}%2C${longitude}`));
+  detailsContent.append(actions);
 
-  const ageSection = document.createElement("section");
-  ageSection.innerHTML = "<h3>Recommended age</h3>";
-  const age = document.createElement("p");
-  age.textContent = formatAge(playground.minAge, playground.maxAge);
-  ageSection.append(age);
-  detailsContent.append(ageSection);
+  const info = detailSection("Play information");
+  const facts = document.createElement("dl");
+  facts.className = "detail-facts";
+  detailRow(facts, "Age", formatAge(playground.minAge, playground.maxAge));
+  detailRow(facts, "Equipment", formatEquipment(playground.equipment));
+  detailRow(facts, "Surface", playground.surface);
+  detailRow(facts, "Fenced", formatKnown(playground.fenced, "Yes", "No"));
+  detailRow(facts, "Ownership", playground.ownership);
+  detailRow(facts, "Access", playground.access);
+  detailRow(facts, "Fee", playground.fee);
+  info.append(facts);
+  detailsContent.append(info);
 
-  const equipmentSection = document.createElement("section");
-  equipmentSection.innerHTML = "<h3>Equipment</h3>";
-  const equipment = equipmentItems(playground);
-  if (equipment.length) {
-    const list = document.createElement("ul");
-    for (const item of equipment) {
-      const entry = document.createElement("li");
-      entry.textContent = `${capabilityLabel(item.capability)} — ${item.count == null ? "quantity unknown" : item.count}`;
-      list.append(entry);
-    }
-    equipmentSection.append(list);
-  } else {
-    const empty = document.createElement("p");
-    empty.textContent = "No equipment recorded";
-    equipmentSection.append(empty);
-  }
-  detailsContent.append(equipmentSection);
+  const municipal = detailSection("Historical municipal record");
+  const municipalFacts = document.createElement("dl");
+  municipalFacts.className = "detail-facts";
+  detailRow(municipalFacts, "Status", playground.municipalStatus);
+  detailRow(municipalFacts, "Repairs", playground.repairs);
+  detailRow(municipalFacts, "Ordinance 1", formatKnown(playground.ordinanceCompliant, "Compliant", "Not compliant"));
+  detailRow(municipalFacts, "Notes", playground.notes);
+  municipal.append(municipalFacts);
+  const warning = historicalWarning(playground);
+  if (warning) municipal.append(warning);
+  detailsContent.append(municipal);
 
-  const reviews = document.createElement("section");
-  reviews.innerHTML = "<h3>Platform reviews</h3>";
-  const reviewState = document.createElement("p");
-  reviewState.textContent = "No ratings yet. No reviews yet.";
-  reviews.append(reviewState);
+  const reviews = detailSection("Community");
+  reviews.append(textElement("p", "No ratings yet"), textElement("p", "No reviews yet"));
   detailsContent.append(reviews);
 
-  const source = document.createElement("section");
-  source.innerHTML = "<h3>Source</h3>";
-  const sourceLink = document.createElement("a");
-  sourceLink.href = playground.source.url;
-  sourceLink.target = "_blank";
-  sourceLink.rel = "noreferrer";
-  sourceLink.textContent = "OpenStreetMap";
-  source.append(sourceLink);
-  const attribution = document.createElement("p");
-  attribution.textContent = `${playground.source.attribution} · ${playground.source.license}`;
-  source.append(attribution);
-  detailsContent.append(source);
+  const history = detailSection("Source values");
+  if (playground.sourceValues?.length) {
+    const list = document.createElement("ul");
+    list.className = "source-history";
+    for (const item of playground.sourceValues) {
+      const field = item.field.replaceAll("_", " ").replaceAll(".", " · ");
+      list.append(textElement("li", `${item.selected ? "Selected" : "Older or conflicting"} ${field}: ${sourceValueText(item.value)} — ${sourceName(item.source)} ${item.sourceId}, ${formatSourceDate(item.date, item.dateMeaning)}`));
+    }
+    history.append(list);
+  } else {
+    history.append(textElement("p", "No source value history recorded"));
+  }
+  detailsContent.append(history);
+
+  const sources = detailSection("Sources");
+  for (const source of displayedSources(playground.sources, playground.source)) {
+    const entry = document.createElement("p");
+    entry.className = "source-entry";
+    entry.append(externalLink(sourceName(source.kind), source.url));
+    entry.append(` · ${formatSourceDate(source.updatedAt, source.dateMeaning)} · ${source.attribution} · ${source.license}`);
+    sources.append(entry);
+  }
+  detailsContent.append(sources);
 }
 
 async function openDetails(summary, marker) {
@@ -505,12 +632,14 @@ function renderPlaygrounds(items) {
     ).addTo(playgrounds);
     marker.on({
       mouseover: () => {
+        clearTimeout(previewSyncTimer);
         hoveredPlayground = { playground, marker };
         syncPlaygroundPreview();
       },
       mouseout: () => {
         if (hoveredPlayground?.marker === marker) hoveredPlayground = undefined;
-        syncPlaygroundPreview();
+        // ponytail: bridge the popup's marker-to-tip gap; use a pointer hit area if it grows.
+        schedulePreviewSync(200);
       },
       click: ({ originalEvent }) => {
         L.DomEvent.stopPropagation(originalEvent);
@@ -523,14 +652,32 @@ function renderPlaygrounds(items) {
     element?.setAttribute("aria-label", `Open details for ${label}`);
     element?.addEventListener("focus", () => {
       if (suppressFocusPreview) return;
+      clearTimeout(previewSyncTimer);
       focusedPlayground = { playground, marker };
+      previewAutoPanPending = false;
       syncPlaygroundPreview();
     });
     element?.addEventListener("blur", () => {
       if (focusedPlayground?.marker === marker) focusedPlayground = undefined;
-      syncPlaygroundPreview();
+      schedulePreviewSync();
     });
     element?.addEventListener("keydown", (event) => {
+      if (event.key === "Tab" && previewMarker === marker && previewPopup) {
+        const button = previewPopup.getElement()?.querySelector(".preview-action");
+        if (event.shiftKey) {
+          // Let native reverse tab order skip the popup that precedes the marker pane.
+          if (button) {
+            button.tabIndex = -1;
+            setTimeout(() => { if (button.isConnected) button.removeAttribute("tabindex"); }, 0);
+          }
+          return;
+        }
+        if (button) {
+          event.preventDefault();
+          button.focus();
+          return;
+        }
+      }
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       openDetails(playground, marker);
