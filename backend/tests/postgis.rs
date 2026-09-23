@@ -257,6 +257,78 @@ async fn enrichment_schema_keeps_current_sources_and_safe_defaults(pool: PgPool)
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn graphql_keeps_unknown_equipment_count_available_in_detail_and_list(pool: PgPool) {
+    sqlx::query(
+        r#"INSERT INTO playgrounds
+           (id, location, capabilities, source_url, source_values)
+           VALUES ('graphql-test/unknown-count', ST_SetSRID(ST_MakePoint(2, 2), 4326)::geography,
+             ARRAY['swing'], 'https://www.openstreetmap.org/node/43',
+             '[{"field":"equipment.swing","value":null,"source":"open_street_map",
+               "source_id":"node/43","date":null,"date_meaning":null,"selected":true}]'::jsonb)"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let app = graphql::router(pool.clone(), "http://127.0.0.1:5173").unwrap();
+
+    let detail = graphql(
+        &app,
+        r#"{ playground(id: "graphql-test/unknown-count") {
+          id equipment { capability count }
+          sourceValues { field value source sourceId selected }
+        } }"#,
+    )
+    .await;
+    assert_eq!(detail["errors"], Value::Null, "{detail}");
+    assert_eq!(
+        detail["data"]["playground"],
+        json!({
+            "id": "graphql-test/unknown-count",
+            "equipment": [{"capability":"SWING", "count":null}],
+            "sourceValues": [{"field":"equipment.swing", "value":"null",
+                "source":"OPEN_STREET_MAP", "sourceId":"node/43", "selected":true}]
+        })
+    );
+
+    let list = graphql(
+        &app,
+        r#"{ playgrounds(filter: { bounds: {
+          southWest: { longitude: 1, latitude: 1 },
+          northEast: { longitude: 3, latitude: 3 }
+        } }) { id } }"#,
+    )
+    .await;
+    assert_eq!(list["errors"], Value::Null, "{list}");
+    assert_eq!(
+        list["data"]["playgrounds"],
+        json!([{"id":"graphql-test/unknown-count"}])
+    );
+
+    sqlx::query("UPDATE playgrounds SET source_values = jsonb_set(source_values, '{0,value}', '[]'::jsonb) WHERE id = 'graphql-test/unknown-count'")
+        .execute(&pool).await.unwrap();
+    let malformed = graphql(
+        &app,
+        r#"{ playground(id: "graphql-test/unknown-count") { id } }"#,
+    )
+    .await;
+    assert_eq!(
+        malformed["errors"][0]["message"],
+        "playground data is temporarily unavailable"
+    );
+    sqlx::query("UPDATE playgrounds SET source_values = jsonb_set(source_values, '{0,value}', '{}'::jsonb) WHERE id = 'graphql-test/unknown-count'")
+        .execute(&pool).await.unwrap();
+    let malformed = graphql(
+        &app,
+        r#"{ playground(id: "graphql-test/unknown-count") { id } }"#,
+    )
+    .await;
+    assert_eq!(
+        malformed["errors"][0]["message"],
+        "playground data is temporarily unavailable"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn graphql_queries_use_postgis_and_combine_catalog_filters(pool: PgPool) {
     seed(&pool).await;
     let app = graphql::router(pool.clone(), "http://127.0.0.1:5173").unwrap();

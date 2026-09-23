@@ -332,6 +332,7 @@ impl PlaygroundRow {
                     Value::String(text) => text,
                     Value::Number(number) => number.to_string(),
                     Value::Bool(boolean) => boolean.to_string(),
+                    Value::Null => "null".into(),
                     _ => return Err(Error::new("playground data is temporarily unavailable")),
                 };
                 Ok(FieldSourceValue {
