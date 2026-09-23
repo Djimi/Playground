@@ -1,7 +1,7 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./styles.css";
-import { formatAge, formatEquipment, formatKnown, formatNeighborhoods, formatSourceDate, selectedSourceValue } from "./playground-format.js";
+import { formatAge, formatEquipment, formatKnown, formatNeighborhoods, formatPhotoCredit, formatSourceDate, selectedSourceValue } from "./playground-format.js";
 
 const SOFIA_CENTER = [42.6977, 23.3219];
 const API_URL = import.meta.env.VITE_API_URL ?? "/graphql";
@@ -181,10 +181,11 @@ function syncPlaygroundPreview() {
     return;
   }
 
+  const popupElement = previewPopup?.getElement();
+  if (popupElement?.contains(document.activeElement)) return;
   const active = focusedPlayground ?? hoveredPlayground;
   if (!active) {
-    const popupElement = previewPopup?.getElement();
-    if (popupElement?.matches(":hover") || popupElement?.contains(document.activeElement)) return;
+    if (popupElement?.matches(":hover")) return;
     closePreviewPopup();
     return;
   }
@@ -210,11 +211,11 @@ function syncPlaygroundPreview() {
     .setLatLng(active.marker.getLatLng())
     .setContent(previewContent)
     .openOn(map);
-  const popupElement = previewPopup.getElement();
-  popupElement.addEventListener("mouseenter", () => clearTimeout(previewSyncTimer));
-  popupElement.addEventListener("mouseleave", schedulePreviewSync);
-  popupElement.addEventListener("focusin", () => clearTimeout(previewSyncTimer));
-  popupElement.addEventListener("focusout", schedulePreviewSync);
+  const openedPopupElement = previewPopup.getElement();
+  openedPopupElement.addEventListener("mouseenter", () => clearTimeout(previewSyncTimer));
+  openedPopupElement.addEventListener("mouseleave", schedulePreviewSync);
+  openedPopupElement.addEventListener("focusin", () => clearTimeout(previewSyncTimer));
+  openedPopupElement.addEventListener("focusout", schedulePreviewSync);
 }
 
 function clearPlaygroundPreview() {
@@ -376,15 +377,22 @@ function image(url, alt, className) {
   return element;
 }
 
-function photoFigure(photo, label, className) {
+function photoFigure(photo, label, className, linked = true) {
   const figure = document.createElement("figure");
   figure.className = "playground-photo";
   figure.append(image(photo.url, `${label} photo`, className));
   const caption = document.createElement("figcaption");
-  caption.append(externalLink(photo.attribution || photo.author || "Photo source", photo.sourceUrl));
-  caption.append(" · ", externalLink(photo.license, photo.licenseUrl));
+  caption.append(linked ? externalLink(formatPhotoCredit(photo), photo.sourceUrl) : textElement("span", formatPhotoCredit(photo)));
+  caption.append(" · ", linked ? externalLink(photo.license, photo.licenseUrl) : textElement("span", photo.license));
   figure.append(caption);
   return figure;
+}
+
+function nextMapTabStop(marker) {
+  const popupElement = previewPopup?.getElement();
+  const focusable = [...document.querySelectorAll("button:not([disabled]), a[href], [tabindex='0']")]
+    .filter((element) => !element.closest("[hidden], [inert]") && !popupElement?.contains(element));
+  return focusable[focusable.indexOf(marker.getElement()) + 1];
 }
 
 function sourceName(source) {
@@ -409,7 +417,7 @@ function playgroundPreview(playground, marker) {
   content.className = "playground-preview";
   const label = playground.name ?? "Unnamed playground";
   content.append(playground.photos?.[0]
-    ? photoFigure(playground.photos[0], label, "preview-photo")
+    ? photoFigure(playground.photos[0], label, "preview-photo", false)
     : textElement("div", "No photo yet", "preview-photo photo-unavailable"));
   content.append(textElement("strong", label));
   content.append(textElement("p", formatNeighborhoods(playground.neighborhoods ?? []), "playground-muted"));
@@ -427,6 +435,13 @@ function playgroundPreview(playground, marker) {
   button.addEventListener("click", (event) => {
     L.DomEvent.stopPropagation(event);
     openDetails(playground, marker);
+  });
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    const target = event.shiftKey ? marker.getElement() : nextMapTabStop(marker);
+    if (!target) return;
+    event.preventDefault();
+    target.focus();
   });
   content.append(button);
   return content;
@@ -617,6 +632,22 @@ function renderPlaygrounds(items) {
       schedulePreviewSync();
     });
     element?.addEventListener("keydown", (event) => {
+      if (event.key === "Tab" && previewMarker === marker && previewPopup) {
+        const button = previewPopup.getElement()?.querySelector(".preview-action");
+        if (event.shiftKey) {
+          // Let native reverse tab order skip the popup that precedes the marker pane.
+          if (button) {
+            button.tabIndex = -1;
+            setTimeout(() => { if (button.isConnected) button.removeAttribute("tabindex"); }, 0);
+          }
+          return;
+        }
+        if (button) {
+          event.preventDefault();
+          button.focus();
+          return;
+        }
+      }
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       openDetails(playground, marker);

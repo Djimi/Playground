@@ -89,7 +89,8 @@ Start the application with `npm run start:local`, then run the manual cases belo
 | PLAYGROUND-019 | High | Open a record with conflicting source values. | Selected and older/conflicting values each show source identity and correctly labeled date; all source links, attribution, and licences are visible. | Enrichment flow browser check |
 | PLAYGROUND-020 | High | Open a record with a Commons photo, then block the image response. | Attribution and licence link remain visible; failed image becomes `Photo unavailable`. | Enrichment flow browser check |
 | PLAYGROUND-021 | High | Activate Directions. | OpenStreetMap directions opens for the playground coordinates without prompting for visitor location. | Enrichment flow browser check |
-| PLAYGROUND-022 | High | Move pointer from pin to popup and click View details; repeat with keyboard focus and Enter/Space. | Popup stays open across both transitions and its button opens details without closing them through a map click. | Enrichment interaction regression |
+| PLAYGROUND-022 | High | Move pointer from pin to popup and click View details. Focus a pin, Tab to View details, Shift+Tab back, Tab forward again, then Tab past the button; also open details with Enter/Space directly on the pin. | Popup stays open across pointer and keyboard transitions; reverse Tab returns to the pin, forward Tab exits to the next map control, and button/direct activation opens details without a map click closing them. | Enrichment interaction regression |
+| PLAYGROUND-023 | High | Keep keyboard focus on View details and hover another pin. | The focused popup stays visible until focus leaves it; unrelated hover does not replace it. | Enrichment interaction regression |
 
 ## Focused Map Navigation
 

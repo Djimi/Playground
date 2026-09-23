@@ -42,6 +42,10 @@ export function formatNeighborhoods(items) {
   return items.length ? items.map(({ name }) => name).join(" · ") : "Neighborhood unknown";
 }
 
+export function formatPhotoCredit({ author, attribution }) {
+  return [author, attribution && attribution !== author ? attribution : null].filter(Boolean).join(" · ") || "Photo source";
+}
+
 export function selectedSourceValue(items, field) {
   return items.find((item) => item.field === field && item.selected) ?? null;
 }

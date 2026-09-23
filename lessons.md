@@ -15,3 +15,5 @@
 - Once the user says "go" on a multi-step chain (apply, archive, commit, PR, merge), execute every step in the same turn; a completed intermediate tool call is not a stopping point.
 - For licence allowlists, tokenize and match known forms exactly; never use substring or prefix checks for policy decisions.
 - When mapping stored provenance, trace every value the producer emits, including JSON null for unknown equipment counts; test both detail and list GraphQL paths before rejecting a value as malformed.
+- For linked Commons photos, show both Artist and Credit when they differ; one field must not hide the other.
+- For a keyboard-actionable map popup, check actual pane tab order, route Tab from the focused marker to the popup action, and preserve a focus-owned popup while unrelated markers are hovered.

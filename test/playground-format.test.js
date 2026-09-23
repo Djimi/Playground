@@ -6,6 +6,7 @@ import {
   formatEquipment,
   formatSourceDate,
   formatNeighborhoods,
+  formatPhotoCredit,
   selectedSourceValue,
 } from "../src/playground-format.js";
 
@@ -46,4 +47,9 @@ test("playground formatting: selected provenance is field-specific", () => {
   ];
   assert.equal(selectedSourceValue(values, "fenced"), values[1]);
   assert.equal(selectedSourceValue(values, "fee"), null);
+});
+
+test("playground formatting: photo author and credit stay visible without identical duplication", () => {
+  assert.equal(formatPhotoCredit({ author: "Photographer", attribution: "Publisher credit" }), "Photographer · Publisher credit");
+  assert.equal(formatPhotoCredit({ author: "Photographer", attribution: "Photographer" }), "Photographer");
 });
