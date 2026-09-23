@@ -19,3 +19,5 @@
 - For a keyboard-actionable map popup, check actual pane tab order, route Tab from the focused marker to the popup action, and preserve a focus-owned popup while unrelated markers are hovered.
 - At narrow widths, account for Leaflet's popup wrapper and content margins when setting a viewport-based content width; document width alone does not reveal popup clipping.
 - Leaflet popup auto-pan can trigger marker mouseout without visitor pointer movement; keep pointer-only preview ownership until subsequent pointer motion settles or the popup is entered.
+- Clear pointer-only auto-pan ownership when keyboard focus moves to a marker; a pointer hold must not suppress the focused marker's popup.
+- Account for the physical gap between a marker and popup tip after re-hover; zero-delay mouseout closes before the pointer can cross it.

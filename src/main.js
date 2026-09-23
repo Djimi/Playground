@@ -160,12 +160,12 @@ function closePreviewPopup() {
   if (marker) updateMarkerStyle(marker);
 }
 
-function schedulePreviewSync() {
+function schedulePreviewSync(delay = 0) {
   clearTimeout(previewSyncTimer);
   previewSyncTimer = setTimeout(() => {
     previewSyncTimer = undefined;
     syncPlaygroundPreview();
-  }, 0);
+  }, delay);
 }
 
 function syncAreaPreview() {
@@ -637,7 +637,8 @@ function renderPlaygrounds(items) {
       },
       mouseout: () => {
         if (hoveredPlayground?.marker === marker) hoveredPlayground = undefined;
-        schedulePreviewSync();
+        // ponytail: bridge the popup's marker-to-tip gap; use a pointer hit area if it grows.
+        schedulePreviewSync(200);
       },
       click: ({ originalEvent }) => {
         L.DomEvent.stopPropagation(originalEvent);
@@ -652,6 +653,7 @@ function renderPlaygrounds(items) {
       if (suppressFocusPreview) return;
       clearTimeout(previewSyncTimer);
       focusedPlayground = { playground, marker };
+      previewAutoPanPending = false;
       syncPlaygroundPreview();
     });
     element?.addEventListener("blur", () => {
