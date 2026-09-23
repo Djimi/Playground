@@ -56,7 +56,8 @@ pub struct SourcePlayground {
 }
 
 pub fn normalize_sofiaplan(body: &str) -> Result<Vec<SourcePlayground>> {
-    let dataset: Value = serde_json::from_str(body).context("SofiaPlan response is not valid JSON")?;
+    let dataset: Value =
+        serde_json::from_str(body).context("SofiaPlan response is not valid JSON")?;
     if dataset.get("type").and_then(Value::as_str) != Some("FeatureCollection") {
         bail!("SofiaPlan response must be a GeoJSON FeatureCollection");
     }
@@ -76,13 +77,19 @@ pub fn normalize_sofiaplan(body: &str) -> Result<Vec<SourcePlayground>> {
         .map(|feature| normalize_sofiaplan_feature(feature, observed_at))
         .collect::<Result<Vec<_>>>()?;
     let mut ids = std::collections::BTreeSet::new();
-    if records.iter().any(|record| !ids.insert(&record.external_id)) {
+    if records
+        .iter()
+        .any(|record| !ids.insert(&record.external_id))
+    {
         bail!("SofiaPlan response contains duplicate playground identifiers");
     }
     Ok(records)
 }
 
-fn normalize_sofiaplan_feature(feature: &Value, observed_at: DateTime<Utc>) -> Result<SourcePlayground> {
+fn normalize_sofiaplan_feature(
+    feature: &Value,
+    observed_at: DateTime<Utc>,
+) -> Result<SourcePlayground> {
     let properties = feature
         .get("properties")
         .and_then(Value::as_object)
@@ -228,7 +235,10 @@ fn known(value: Option<&Value>) -> Option<&Value> {
     })
 }
 
-fn preferred<'a>(properties: &'a serde_json::Map<String, Value>, names: &[&str]) -> Option<&'a Value> {
+fn preferred<'a>(
+    properties: &'a serde_json::Map<String, Value>,
+    names: &[&str],
+) -> Option<&'a Value> {
     names.iter().find_map(|name| known(properties.get(*name)))
 }
 
@@ -242,7 +252,11 @@ fn insert_text(
     let Some(value) = value else {
         return;
     };
-    if let Some(value) = value.as_str().map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(value) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         values.insert(field.into(), Value::String(value.into()));
     } else {
         rejected(source, external_id, field, value);
@@ -269,7 +283,9 @@ fn parse_age_range(value: &Value) -> Option<(i16, i16)> {
 }
 
 fn parse_fenced(value: &Value) -> Option<bool> {
-    value.as_bool().or_else(|| parse_count(value).map(|count| count > 0))
+    value
+        .as_bool()
+        .or_else(|| parse_count(value).map(|count| count > 0))
 }
 
 fn parse_bulgarian_bool(value: &Value) -> Option<bool> {
@@ -301,7 +317,9 @@ fn sofiaplan_point(feature: &Value, external_id: &str) -> Result<(f64, f64)> {
         .get("coordinates")
         .and_then(Value::as_array)
         .filter(|coordinates| coordinates.len() == 1)
-        .ok_or_else(|| anyhow!("SofiaPlan feature {external_id} must contain exactly one coordinate"))?;
+        .ok_or_else(|| {
+            anyhow!("SofiaPlan feature {external_id} must contain exactly one coordinate")
+        })?;
     let point = coordinates[0]
         .as_array()
         .filter(|point| point.len() == 2)
@@ -386,7 +404,11 @@ pub fn match_sources(osm: &[SourcePlayground], sofia: &[SourcePlayground]) -> Ma
     let mut osm_counts = vec![0usize; osm.len()];
     let mut sofia_counts = vec![0usize; sofia.len()];
 
-    for (osm_index, osm_record) in osm.iter().enumerate().filter(|(_, record)| !record.excluded_from_catalog) {
+    for (osm_index, osm_record) in osm
+        .iter()
+        .enumerate()
+        .filter(|(_, record)| !record.excluded_from_catalog)
+    {
         let osm_point = Point::new(osm_record.longitude, osm_record.latitude);
         for (sofia_index, sofia_record) in sofia
             .iter()
@@ -466,13 +488,16 @@ pub fn merge_catalog(
         ) else {
             continue;
         };
-        if !matched_osm.insert(pair.osm_id.clone()) || !matched_sofia.insert(pair.sofia_id.clone()) {
+        if !matched_osm.insert(pair.osm_id.clone()) || !matched_sofia.insert(pair.sofia_id.clone())
+        {
             continue;
         }
         let id = osm_record.external_id.clone();
-        result
-            .playgrounds
-            .push(canonical_playground(id.clone(), &[*osm_record, *sofia_record], osm_record));
+        result.playgrounds.push(canonical_playground(
+            id.clone(),
+            &[*osm_record, *sofia_record],
+            osm_record,
+        ));
         result.source_links.extend([
             SourceLink {
                 playground_id: id.clone(),
@@ -498,7 +523,9 @@ pub fn merge_catalog(
                 &[*record],
                 record,
             ));
-            result.source_links.push(unmatched_link(record.external_id.clone(), record));
+            result
+                .source_links
+                .push(unmatched_link(record.external_id.clone(), record));
         }
     }
     for record in sofia_by_id.values() {
@@ -511,7 +538,9 @@ pub fn merge_catalog(
         }
     }
 
-    result.playgrounds.sort_by(|left, right| left.id.cmp(&right.id));
+    result
+        .playgrounds
+        .sort_by(|left, right| left.id.cmp(&right.id));
     result.source_links.sort_by(|left, right| {
         left.playground_id
             .cmp(&right.playground_id)
@@ -630,7 +659,8 @@ fn source_values(sources: &[&SourcePlayground]) -> Vec<SourceValue> {
                     .map(|(selected, _)| selected)
                     .or_else(|| selected_equipment_presence(name, sources))
                     .is_some_and(|selected| {
-                        selected.source == source.source && selected.external_id == source.external_id
+                        selected.source == source.source
+                            && selected.external_id == source.external_id
                     }),
             });
         }
@@ -667,7 +697,13 @@ fn selected_equipment<'a>(
 ) -> Option<(&'a SourcePlayground, &'a i32)> {
     sources
         .iter()
-        .filter_map(|source| source.equipment.get(name).and_then(|count| count.as_ref()).map(|count| (*source, count)))
+        .filter_map(|source| {
+            source
+                .equipment
+                .get(name)
+                .and_then(|count| count.as_ref())
+                .map(|count| (*source, count))
+        })
         .max_by(|left, right| compare_candidates("equipment", left.0, right.0))
 }
 
@@ -682,7 +718,11 @@ fn selected_equipment_presence<'a>(
         .max_by(|left, right| compare_candidates("equipment", left, right))
 }
 
-fn compare_candidates(field: &str, left: &SourcePlayground, right: &SourcePlayground) -> std::cmp::Ordering {
+fn compare_candidates(
+    field: &str,
+    left: &SourcePlayground,
+    right: &SourcePlayground,
+) -> std::cmp::Ordering {
     left.source_date
         .cmp(&right.source_date)
         .then_with(|| fallback_rank(field, left.source).cmp(&fallback_rank(field, right.source)))
@@ -693,9 +733,33 @@ fn compare_candidates(field: &str, left: &SourcePlayground, right: &SourcePlaygr
 fn fallback_rank(field: &str, source: SourceKind) -> u8 {
     match (field, source) {
         ("name" | "surface" | "access" | "fee", SourceKind::OpenStreetMap)
-        | ("address" | "ownership" | "min_age" | "max_age" | "fenced" | "municipal_status" | "ordinance_compliant" | "repairs" | "notes" | "equipment", SourceKind::SofiaPlan) => 2,
+        | (
+            "address"
+            | "ownership"
+            | "min_age"
+            | "max_age"
+            | "fenced"
+            | "municipal_status"
+            | "ordinance_compliant"
+            | "repairs"
+            | "notes"
+            | "equipment",
+            SourceKind::SofiaPlan,
+        ) => 2,
         ("name" | "surface" | "access" | "fee", _)
-        | ("address" | "ownership" | "min_age" | "max_age" | "fenced" | "municipal_status" | "ordinance_compliant" | "repairs" | "notes" | "equipment", _) => 1,
+        | (
+            "address"
+            | "ownership"
+            | "min_age"
+            | "max_age"
+            | "fenced"
+            | "municipal_status"
+            | "ordinance_compliant"
+            | "repairs"
+            | "notes"
+            | "equipment",
+            _,
+        ) => 1,
         (_, SourceKind::OpenStreetMap) => 2,
         (_, SourceKind::SofiaPlan) => 1,
     }
@@ -715,7 +779,9 @@ fn selected_bool(field: &str, sources: &[&SourcePlayground]) -> Option<bool> {
 
 fn source_url(source: &SourcePlayground) -> String {
     match source.source {
-        SourceKind::OpenStreetMap => format!("https://www.openstreetmap.org/{}", source.external_id),
+        SourceKind::OpenStreetMap => {
+            format!("https://www.openstreetmap.org/{}", source.external_id)
+        }
         SourceKind::SofiaPlan => SOFIAPLAN_DATASET_PAGE.into(),
     }
 }
@@ -762,8 +828,10 @@ mod tests {
 
     #[test]
     fn normalizes_sofiaplan_fixture_with_explicit_zeroes_and_exclusions() {
-        let records = normalize_sofiaplan(include_str!("../tests/fixtures/sofiaplan-playgrounds.geojson"))
-            .unwrap();
+        let records = normalize_sofiaplan(include_str!(
+            "../tests/fixtures/sofiaplan-playgrounds.geojson"
+        ))
+        .unwrap();
 
         assert_eq!(records.len(), 3);
         assert_eq!(records[0].external_id, "06.129");
@@ -852,12 +920,20 @@ mod tests {
         assert!(!records[0].values.contains_key("address"));
         let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
         assert!(output.contains("source=\"sofiaplan\""), "{output}");
-        assert!(output.contains("external_id=\"invalid-address\""), "{output}");
+        assert!(
+            output.contains("external_id=\"invalid-address\""),
+            "{output}"
+        );
         assert!(output.contains("field=\"address\""), "{output}");
         assert!(output.contains("rejected_value=42"), "{output}");
     }
 
-    fn source(source: SourceKind, external_id: &str, longitude: f64, latitude: f64) -> SourcePlayground {
+    fn source(
+        source: SourceKind,
+        external_id: &str,
+        longitude: f64,
+        latitude: f64,
+    ) -> SourcePlayground {
         SourcePlayground {
             source,
             external_id: external_id.into(),
@@ -902,7 +978,9 @@ mod tests {
     #[test]
     fn matching_includes_the_15_meter_boundary() {
         assert!(within_match_radius(MATCH_RADIUS_METERS));
-        assert!(!within_match_radius(f64::from_bits(MATCH_RADIUS_METERS.to_bits() + 1)));
+        assert!(!within_match_radius(f64::from_bits(
+            MATCH_RADIUS_METERS.to_bits() + 1
+        )));
     }
 
     #[test]
@@ -922,8 +1000,18 @@ mod tests {
     fn matching_keeps_one_osm_record_with_two_candidates_separate() {
         let osm = vec![source(SourceKind::OpenStreetMap, "node/2", 23.32, 42.70)];
         let sofia = vec![
-            source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70 + latitude_offset(5.0)),
-            source(SourceKind::SofiaPlan, "06.130", 23.32, 42.70 + latitude_offset(10.0)),
+            source(
+                SourceKind::SofiaPlan,
+                "06.129",
+                23.32,
+                42.70 + latitude_offset(5.0),
+            ),
+            source(
+                SourceKind::SofiaPlan,
+                "06.130",
+                23.32,
+                42.70 + latitude_offset(10.0),
+            ),
         ];
 
         let result = match_sources(&osm, &sofia);
@@ -939,7 +1027,12 @@ mod tests {
     fn matching_keeps_one_sofiaplan_record_with_two_candidates_separate() {
         let osm = vec![
             source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70),
-            source(SourceKind::OpenStreetMap, "node/2", 23.32, 42.70 + latitude_offset(10.0)),
+            source(
+                SourceKind::OpenStreetMap,
+                "node/2",
+                23.32,
+                42.70 + latitude_offset(10.0),
+            ),
         ];
         let sofia = vec![source(
             SourceKind::SofiaPlan,
@@ -960,13 +1053,21 @@ mod tests {
     #[test]
     fn merging_selects_newest_values_and_retains_false_and_zero_provenance() {
         let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
-        osm.source_date = Some(DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z").unwrap().into());
+        osm.source_date = Some(
+            DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
         osm.date_meaning = Some(DateMeaning::SourceUpdate);
         osm.values.insert("fenced".into(), json!(false));
         osm.equipment.insert("swing".into(), Some(0));
 
         let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
-        sofia.source_date = Some(DateTime::parse_from_rfc3339("2019-04-18T00:00:00Z").unwrap().into());
+        sofia.source_date = Some(
+            DateTime::parse_from_rfc3339("2019-04-18T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
         sofia.date_meaning = Some(DateMeaning::Observation);
         sofia.values.insert("fenced".into(), json!(true));
         sofia.equipment.insert("swing".into(), Some(2));
@@ -1001,17 +1102,29 @@ mod tests {
     fn merging_uses_source_fallbacks_and_keeps_stable_ids_and_exclusions() {
         let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
         osm.name = Some("OSM name".into());
-        osm.source_date = Some(DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z").unwrap().into());
+        osm.source_date = Some(
+            DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
         osm.values.insert("address".into(), json!("OSM address"));
         osm.values.insert("surface".into(), json!("rubber"));
         osm.values.insert("min_age".into(), json!(1));
 
         let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
-        sofia.source_date = Some(DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z").unwrap().into());
-        sofia.values.insert("address".into(), json!("Sofia address"));
+        sofia.source_date = Some(
+            DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
+        sofia
+            .values
+            .insert("address".into(), json!("Sofia address"));
         sofia.values.insert("surface".into(), json!("sand"));
         sofia.values.insert("min_age".into(), json!(3));
-        sofia.values.insert("notes".into(), json!("Retained despite OSM missing it"));
+        sofia
+            .values
+            .insert("notes".into(), json!("Retained despite OSM missing it"));
 
         let osm_only = source(SourceKind::OpenStreetMap, "node/2", 23.40, 42.70);
         let sofia_only = source(SourceKind::SofiaPlan, "06.130", 23.50, 42.70);
@@ -1020,30 +1133,58 @@ mod tests {
 
         let osm_records = vec![osm.clone(), osm_only];
         let sofia_records = vec![sofia.clone(), sofia_only, excluded];
-        let merged = merge_catalog(&osm_records, &sofia_records, &match_sources(&osm_records, &sofia_records));
-        let playground = merged.playgrounds.iter().find(|playground| playground.id == "node/1").unwrap();
+        let merged = merge_catalog(
+            &osm_records,
+            &sofia_records,
+            &match_sources(&osm_records, &sofia_records),
+        );
+        let playground = merged
+            .playgrounds
+            .iter()
+            .find(|playground| playground.id == "node/1")
+            .unwrap();
 
         assert_eq!(playground.name.as_deref(), Some("OSM name"));
         assert_eq!(playground.address.as_deref(), Some("Sofia address"));
         assert_eq!(playground.surface.as_deref(), Some("rubber"));
         assert_eq!(playground.min_age, Some(3));
-        assert_eq!(playground.notes.as_deref(), Some("Retained despite OSM missing it"));
         assert_eq!(
-            merged.playgrounds.iter().map(|playground| playground.id.as_str()).collect::<Vec<_>>(),
+            playground.notes.as_deref(),
+            Some("Retained despite OSM missing it")
+        );
+        assert_eq!(
+            merged
+                .playgrounds
+                .iter()
+                .map(|playground| playground.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["node/1", "node/2", "sofiaplan/06.130"]
         );
-        assert!(merged.source_links.iter().all(|link| link.external_id != "06.131"));
+        assert!(
+            merged
+                .source_links
+                .iter()
+                .all(|link| link.external_id != "06.131")
+        );
     }
 
     #[test]
     fn merging_selects_newest_name_and_retains_name_provenance() {
         let mut osm = source(SourceKind::OpenStreetMap, "node/1", 23.32, 42.70);
         osm.name = Some("Older OSM name".into());
-        osm.source_date = Some(DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z").unwrap().into());
+        osm.source_date = Some(
+            DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
 
         let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
         sofia.name = Some("Newer SofiaPlan name".into());
-        sofia.source_date = Some(DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z").unwrap().into());
+        sofia.source_date = Some(
+            DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
 
         let matches = match_sources(&[osm.clone()], &[sofia.clone()]);
         let merged = merge_catalog(&[osm], &[sofia], &matches);
@@ -1064,9 +1205,15 @@ mod tests {
     #[test]
     fn merging_keeps_observations_out_of_source_updated_at() {
         let mut sofia = source(SourceKind::SofiaPlan, "06.129", 23.32, 42.70);
-        sofia.source_date = Some(DateTime::parse_from_rfc3339("2019-04-18T00:00:00Z").unwrap().into());
+        sofia.source_date = Some(
+            DateTime::parse_from_rfc3339("2019-04-18T00:00:00Z")
+                .unwrap()
+                .into(),
+        );
         sofia.date_meaning = Some(DateMeaning::Observation);
-        sofia.values.insert("notes".into(), json!("Observed municipal note"));
+        sofia
+            .values
+            .insert("notes".into(), json!("Observed municipal note"));
         let observed_at = sofia.source_date;
 
         let merged = merge_catalog(&[], &[sofia], &MatchResult::default());

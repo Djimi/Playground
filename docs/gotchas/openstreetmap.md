@@ -42,3 +42,19 @@ returns 406 or 429, retry later or select another trusted instance through
 `OVERPASS_URL`; do not bypass import validation.
 
 Verify with `node scripts/prepare-neighborhoods.mjs`; do not call these services from the browser.
+
+## Photo and date metadata need their own evidence
+
+Symptom: a nearby Commons image appears to depict a playground, or an OSM edit
+timestamp is presented as a field observation date.
+
+Cause: proximity does not establish what a photo shows. An OSM element
+timestamp records a source update, not when each tag was checked on site.
+
+Fix: import only direct `wikimedia_commons=File:...` references, and attach a
+photo only when Commons returns complete reusable licence and attribution
+metadata. Label OSM timestamps as source updates, distinct from SofiaPlan's
+source-wide observation date.
+
+Verify with `cargo test --manifest-path backend/Cargo.toml commons::tests` and
+`cargo test --manifest-path backend/Cargo.toml importer::tests`.

@@ -571,10 +571,10 @@ fn normalize_root(element: &Element, raw_root: Value) -> Result<Root> {
             .ok()
             .map(|parsed| parsed.with_timezone(&Utc))
     });
-    if source_date.is_none() {
-        if let Some(timestamp) = timestamp {
-            warn_invalid_osm_value(&external_id, "source_date", timestamp);
-        }
+    if source_date.is_none()
+        && let Some(timestamp) = timestamp
+    {
+        warn_invalid_osm_value(&external_id, "source_date", timestamp);
     }
 
     Ok(Root {

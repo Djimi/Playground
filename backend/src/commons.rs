@@ -70,7 +70,8 @@ pub async fn resolve_commons(
 }
 
 pub fn parse_imageinfo(body: &str, requested_titles: &[String]) -> Result<PhotoResolution> {
-    let response: Value = serde_json::from_str(body).context("Commons response is not valid JSON")?;
+    let response: Value =
+        serde_json::from_str(body).context("Commons response is not valid JSON")?;
     let query = response
         .get("query")
         .and_then(Value::as_object)
@@ -112,7 +113,13 @@ pub fn parse_imageinfo(body: &str, requested_titles: &[String]) -> Result<PhotoR
 fn title_map(query: &serde_json::Map<String, Value>) -> BTreeMap<String, String> {
     ["normalized", "redirects"]
         .into_iter()
-        .flat_map(|key| query.get(key).and_then(Value::as_array).into_iter().flatten())
+        .flat_map(|key| {
+            query
+                .get(key)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
         .filter_map(|mapping| {
             Some((
                 mapping.get("from")?.as_str()?.to_owned(),
@@ -147,7 +154,8 @@ fn photo_from_imageinfo(imageinfo: &Value) -> Option<LicensedPhoto> {
     }
     let author = metadata_text(metadata_value(metadata, "Artist")?);
     let attribution = metadata_text(
-        metadata_value(metadata, "Credit").unwrap_or_else(|| metadata_value(metadata, "Artist").unwrap()),
+        metadata_value(metadata, "Credit")
+            .unwrap_or_else(|| metadata_value(metadata, "Artist").unwrap()),
     );
     let license_url = metadata_text(metadata_value(metadata, "LicenseUrl")?);
     let url = imageinfo
@@ -162,17 +170,22 @@ fn photo_from_imageinfo(imageinfo: &Value) -> Option<LicensedPhoto> {
         .filter(|value| !value.trim().is_empty())?
         .to_owned();
 
-    (!author.is_empty() && !attribution.is_empty() && !license_url.is_empty()).then_some(LicensedPhoto {
-        url,
-        author,
-        license,
-        license_url,
-        attribution,
-        source_url,
-    })
+    (!author.is_empty() && !attribution.is_empty() && !license_url.is_empty()).then_some(
+        LicensedPhoto {
+            url,
+            author,
+            license,
+            license_url,
+            attribution,
+            source_url,
+        },
+    )
 }
 
-fn metadata_value<'a>(metadata: &'a serde_json::Map<String, Value>, field: &str) -> Option<&'a str> {
+fn metadata_value<'a>(
+    metadata: &'a serde_json::Map<String, Value>,
+    field: &str,
+) -> Option<&'a str> {
     metadata.get(field)?.get("value")?.as_str()
 }
 
@@ -182,8 +195,12 @@ fn reusable_license(license: &str) -> bool {
         .filter(|token| !token.is_empty())
         .map(str::to_ascii_uppercase)
         .collect::<Vec<_>>();
-    if tokens.iter().any(|token| matches!(token.as_str(), "NC" | "ND" | "NONCOMMERCIAL" | "NODERIVATIVES"))
-        || contains_tokens(&tokens, &["NON", "COMMERCIAL"])
+    if tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "NC" | "ND" | "NONCOMMERCIAL" | "NODERIVATIVES"
+        )
+    }) || contains_tokens(&tokens, &["NON", "COMMERCIAL"])
         || contains_tokens(&tokens, &["NO", "DERIVATIVES"])
     {
         return false;
@@ -228,8 +245,14 @@ fn metadata_text(value: &str) -> String {
     value
         .chars()
         .filter(|character| match character {
-            '<' => { in_tag = true; false }
-            '>' => { in_tag = false; false }
+            '<' => {
+                in_tag = true;
+                false
+            }
+            '>' => {
+                in_tag = false;
+                false
+            }
             _ => !in_tag,
         })
         .collect::<String>()
@@ -274,10 +297,12 @@ mod tests {
         assert_eq!(result.rejected, 3);
         assert_eq!(result.accepted[0].photo.license, "CC BY-SA 4.0");
         assert!(!result.accepted[0].photo.attribution.contains('<'));
-        assert!(result.accepted[0]
-            .photo
-            .source_url
-            .starts_with("https://commons.wikimedia.org/"));
+        assert!(
+            result.accepted[0]
+                .photo
+                .source_url
+                .starts_with("https://commons.wikimedia.org/")
+        );
     }
 
     fn image_page(title: &str, license: &str, non_free: Option<bool>) -> Value {
@@ -358,7 +383,10 @@ mod tests {
         let result = parse_imageinfo(&response.to_string(), &requested).unwrap();
 
         assert_eq!(result.rejected, 0);
-        assert_eq!(result.accepted[0].requested_title, "File:Requested title.jpg");
+        assert_eq!(
+            result.accepted[0].requested_title,
+            "File:Requested title.jpg"
+        );
     }
 
     #[derive(Clone)]
@@ -432,6 +460,9 @@ mod tests {
             "url|canonicaltitle|mime|mediatype|size|timestamp|extmetadata"
         );
         assert_eq!(requests[0]["iiurlwidth"], "1200");
-        assert_eq!(requests[0]["iiextmetadatafilter"], "Artist|Credit|LicenseShortName|LicenseUrl|UsageTerms|NonFree");
+        assert_eq!(
+            requests[0]["iiextmetadatafilter"],
+            "Artist|Credit|LicenseShortName|LicenseUrl|UsageTerms|NonFree"
+        );
     }
 }
